@@ -1,0 +1,45 @@
+# -----------------------------------------------------------
+# GLOBAL IGNORING RULES
+# -----------------------------------------------------------
+
+# Node / Backend (NestJS)
+/backend/node_modules/
+/backend/dist/
+/backend/npm-debug.log
+/backend/.env
+/backend/coverage/
+
+# Docker build cache
+.dockerignore
+.vscode
+.idea
+.DS_Store
+
+# -----------------------------------------------------------
+# Flutter / Frontend (Client) - DOĞRU YOLLAR
+# -----------------------------------------------------------
+/client/app/.dart_tool/
+/client/app/.flutter-plugins-dependencies
+/client/app/.packages
+/client/app/.pub-cache/
+/client/app/.pub/
+/client/app/build/
+/client/app/coverage/
+/client/app/doc/api/
+/client/app/ios/Flutter/.last_build_id
+/client/app/app.*.symbols
+/client/app/app.*.map.json
+/client/app/ios/Pods/
+/client/app/android/app/.cxx
+/client/app/android/app/.externalNativeBuild
+/client/app/android/app/build
+/client/app/android/.gradle
+
+# VS Code / IDE
+.vscode/
+.idea/
+
+# Prisma
+/backend/prisma/migrations/
+/backend/prisma/seed.db
+/backend/prisma/dev.db

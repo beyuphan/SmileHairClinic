@@ -1,0 +1,33 @@
+version: '3.8' 
+
+services: 
+  
+  api:
+    container_name: clinic_api
+    build: ./backend  
+    ports:
+      - "3000:3000" 
+    volumes:
+      - ./backend:/usr/src/app 
+    env_file:
+      - ./backend/.env 
+    depends_on:
+      - db 
+    command: sh -c "npx prisma generate && npm run start:dev"
+
+ 
+  db:
+    container_name: clinic_db
+    image: postgres:15-alpine # Bunu fabrikadan (Docker Hub) hazır al
+    ports:
+      - "5432:5432" 
+    environment:
+      
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: supersecretpassword
+      POSTGRES_DB: clinic_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data 
+
+volumes: 
+  postgres_data:

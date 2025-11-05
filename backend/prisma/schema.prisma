@@ -1,0 +1,106 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---- TABLOLARIMIZ BAŞLIYOR ----
+
+// HATA BURADAYDI: Her bir değer ayrı satırda olmalı
+enum Role {
+  patient
+  doctor
+  admin
+}
+
+// HATA BURADAYDI: Her bir değer ayrı satırda olmalı
+enum ConsultationStatus {
+  pending_photos
+  pending_review
+  review_completed
+  treatment_scheduled
+  completed
+  cancelled
+}
+
+// HATA BURADAYDI: Her bir değer ayrı satırda olmalı
+enum AngleTag {
+  front
+  top
+  left_side
+  right_side
+  donor_area_back
+  donor_area_side
+  other
+}
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String
+  role          Role      @default(patient)
+  createdAt     DateTime  @default(now())
+  profile       PatientProfile?
+  consultations Consultation[]
+  sentMessages  ChatMessage[]  @relation("Sender")
+  timelineEvents TimelineEvent[]
+}
+
+model PatientProfile {
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  firstName           String
+  lastName            String
+  dateOfBirth         DateTime
+  phoneNumber         String
+  country             String
+  medicalHistoryNotes String?  @db.Text
+}
+
+model Consultation {
+  id              String             @id @default(uuid())
+  patientId       String
+  patient         User               @relation(fields: [patientId], references: [id])
+  doctorId        String?
+  status          ConsultationStatus @default(pending_photos)
+  doctorNotes     String?            @db.Text
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  photos          ConsultationPhoto[]
+  messages        ChatMessage[]
+  medicalFormData Json?
+}
+
+model ConsultationPhoto {
+  id             String     @id @default(uuid())
+  consultationId String
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  fileUrl        String     @db.Text
+  angleTag       AngleTag
+  uploadedAt     DateTime   @default(now())
+}
+
+model ChatMessage {
+  id             String       @id @default(uuid())
+  consultationId String
+  consultation   Consultation @relation(fields: [consultationId], references: [id])
+  senderId       String
+  sender         User         @relation("Sender", fields: [senderId], references: [id])
+  messageContent String       @db.Text
+  timestamp      DateTime     @default(now())
+  isRead         Boolean      @default(false)
+}
+
+model TimelineEvent {
+  id          String   @id @default(uuid())
+  patientId   String
+  patient     User     @relation(fields: [patientId], references: [id])
+  title       String
+  description String?  @db.Text
+  eventDate   DateTime
+  isCompleted Boolean  @default(false)
+}

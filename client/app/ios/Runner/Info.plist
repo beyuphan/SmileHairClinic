@@ -45,5 +45,9 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Fotoğraf yükleyebilmeniz için kameranıza erişmemiz gerekiyor.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Kamera kullanılırken mikrofona ihtiyaç duyulabilir.</string>
 </dict>
 </plist>
