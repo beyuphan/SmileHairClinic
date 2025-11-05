@@ -1,5 +1,5 @@
 // backend/src/consultation/consultation.controller.ts
-import { Controller, Post, Body, UseGuards, Get, Request as NestRequest } from '@nestjs/common';
+import { Controller, Post, Body, UseGuards, Get, Param ,Request as NestRequest } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'; // Korumamızı import et
 import { ConsultationService } from './consultation.service';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
@@ -16,7 +16,11 @@ export class ConsultationController {
     const userId = req.user.userId; // Token'dan gelen kullanıcı kimliği
     return this.consultationService.findAllForPatient(userId);
   }
-
+  @Get(':id')
+  findOneForPatient(@Param('id') id: string, @NestRequest() req) {
+    const userId = req.user.userId;
+    return this.consultationService.findOneForPatient(id, userId);
+  }
   // Akış 1: Yeni konsültasyon kaydı oluştur
   @Post()
   create(@Body() createDto: CreateConsultationDto, @NestRequest() req) {

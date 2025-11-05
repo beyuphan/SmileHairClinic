@@ -130,7 +130,54 @@ export class ConsultationService {
   return securedConsultations;
 
   }
-  
+  // YENİ FONKSİYON: Tek bir kaydın tüm detaylarını getir
+async findOneForPatient(consultationId: string, patientId: string) {
+  // 1. Önce bu kullanıcının bu kayda erişim hakkı var mı kontrol et
+  // (Bu fonksiyon bizde zaten var)
+  await this.verifyConsultationOwner(consultationId, patientId);
+
+  this.logger.log(`Fetching details for consultation ${consultationId}`);
+
+  // 2. Kaydın tüm detaylarını, TÜM fotoğraflarla birlikte çek
+  const consultation = await this.prisma.consultation.findUnique({
+    where: { id: consultationId },
+    include: {
+      photos: { // Thumbnail değil, HEPSİNİ al
+        orderBy: {
+          angleTag: 'asc', // Fotoğrafları 'front', 'top' sırasına göre al
+        },
+      },
+    },
+  });
+
+  if (!consultation) {
+    throw new NotFoundException('Konsültasyon detayı bulunamadı.');
+  }
+
+  // 3. Güvenlik: TÜM Fotoğrafları imzalı URL'lerle değiştir
+  // (Bu 'map' mantığı 'findAllForPatient' ile aynı)
+  const securedPhotos = await Promise.all(
+    consultation.photos.map(async (photo) => {
+      const originalUrl = photo.fileUrl;
+      const urlParts = new URL(originalUrl); // URL importu en üstte olmalı
+      const key = urlParts.pathname.substring(1);
+
+      const temporaryUrl = await this.s3.getPresignedReadUrl(key);
+
+      // Orijinal objeyi değiştirmeden yenisini yarat
+      return {
+        ...photo,
+        fileUrl: temporaryUrl,
+      };
+    }),
+  );
+
+  // 4. Flutter'a güvenli ve tam detayı döndür
+  return {
+    ...consultation,
+    photos: securedPhotos,
+  };
+}
   // Güvenlik: Kullanıcının kendi konsültasyonuna işlem yaptığını doğrula
   private async verifyConsultationOwner(
     consultationId: string,

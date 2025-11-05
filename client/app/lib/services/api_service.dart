@@ -142,4 +142,17 @@ Future<List<dynamic>> getMyConsultations() async {
     rethrow;
   }
 }
+
+Future<Map<String, dynamic>> getConsultationDetails(String consultationId) async {
+  try {
+    // GET isteği at (örn: /consultations/abc-123)
+    // Header'a token otomatik eklenecek
+    final response = await _dio.get('/consultations/$consultationId');
+
+    // Gelen JSON objesini (Map) doğrudan BLoC'a döndür
+    return response.data as Map<String, dynamic>; 
+  } catch (e) {
+    rethrow;
+  }
+}
 }

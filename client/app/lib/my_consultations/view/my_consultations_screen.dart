@@ -4,6 +4,7 @@ import '/my_consultations/bloc/my_consultations_bloc.dart';
 import '/my_consultations/bloc/my_consultations_event.dart';
 import '/my_consultations/bloc/my_consultations_state.dart';
 import '/services/api_service.dart';
+import '/consultation/detail/view/consultation_detail_screen.dart';
 
 class MyConsultationsScreen extends StatelessWidget {
   const MyConsultationsScreen({super.key});
@@ -70,7 +71,13 @@ class MyConsultationsScreen extends StatelessWidget {
 
                       trailing: const Icon(Icons.arrow_forward_ios),
                       onTap: () {
-                        // TODO: Detay sayfasına yönlendir
+                        Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => ConsultationDetailScreen(
+                                  consultationId: consultation['id'],
+                                ),
+                              ),
+                            );
                       },
                     ),
                   );
