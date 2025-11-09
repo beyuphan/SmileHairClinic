@@ -22,6 +22,7 @@ dependencies:
   image: ^4.5.4
   sensors_plus: ^7.0.0
   audioplayers: ^6.5.1
+  flutter_tts: ^4.2.3
 
 dev_dependencies:
   flutter_test:
@@ -32,4 +33,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/overlays/
-    - assets/audio/
+    - assets/sounds/
