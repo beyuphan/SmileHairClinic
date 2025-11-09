@@ -49,5 +49,7 @@
 	<string>Fotoğraf yükleyebilmeniz için kameranıza erişmemiz gerekiyor.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Kamera kullanılırken mikrofona ihtiyaç duyulabilir.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Telefonun doğru açıda tutulduğunu anlamak için hareket sensörlerine ihtiyaç var.</string>
 </dict>
 </plist>

@@ -8,7 +8,7 @@ class ApiService {
 
   // Android Emülatör için 'localhost' 10.0.2.2'dir.
   // iOS Simülatör veya gerçek cihaz için local IP'ni (örn: 192.168.1.10) yazmalısın.
-  static const String _baseUrl = "http://192.168.1.21:3000";
+  static const String _baseUrl = "http://192.168.1.25:3000";
 
   ApiService()
       : _dio = Dio(

@@ -1,22 +1,22 @@
 import 'dart:io';
 import 'dart:async';
-import 'dart:math'; // Point için eklendi
-import 'dart:typed_data'; // Uint8List ve ByteData için eklendi
+import 'dart:math';
+import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart'; // 'WriteBuffer' için
-import 'package:flutter/services.dart'; // rootBundle için eklendi
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:google_mlkit_selfie_segmentation/google_mlkit_selfie_segmentation.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
-import 'package:image/image.dart' as img; // 'image' paketini 'img' adıyla kullan
+import 'package:image/image.dart' as img;
+import 'package:sensors_plus/sensors_plus.dart'; // YENİ: Sensör paketi
 
 import '/consultation/bloc/consultation_bloc.dart';
 import '/consultation/bloc/consultation_event.dart';
 import '/consultation/bloc/consultation_state.dart';
 import '/services/api_service.dart';
 
-// Bu ekranı HomeScreen'den veya bir "Yeni Konsültasyon Başlat" butonundan çağıracağız
 class PhotoWizardScreen extends StatelessWidget {
   const PhotoWizardScreen({super.key});
 
@@ -24,14 +24,13 @@ class PhotoWizardScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return BlocProvider(
       create: (context) => ConsultationBloc(
-        apiService: context.read<ApiService>(), // RepositoryProvider'dan al
+        apiService: context.read<ApiService>(),
       ),
-      child: const _PhotoWizardView(), // Asıl işi bu widget yapacak
+      child: const _PhotoWizardView(),
     );
   }
 }
 
-// Bu widget, Kamera ve Sayfa (PageView) gibi state'leri yönetir
 class _PhotoWizardView extends StatefulWidget {
   const _PhotoWizardView();
 
@@ -40,23 +39,17 @@ class _PhotoWizardView extends StatefulWidget {
 }
 
 class _PhotoWizardViewState extends State<_PhotoWizardView> {
-  // Kontrolcüler
   late PageController _pageController;
   CameraController? _cameraController;
-
-  // ML Kit Beyinleri
   late SelfieSegmenter _selfieSegmenter;
   late FaceDetector _faceDetector;
 
-  bool _isDetecting = false; // "Şu an bir kareyi işliyor muyum?" (Kilit)
-
-  // Otomatik çekim için
+  bool _isDetecting = false;
   Timer? _autoCaptureTimer;
-  bool _isFaceAligned = false; // Silüetle hizalandı mı?
+  bool _isFaceAligned = false;
 
-  final List<XFile> _takenPhotos = []; // Çekilen fotoğraflar
+  final List<XFile> _takenPhotos = [];
 
-  // Adımlar
   final List<Map<String, String>> _steps = [
     {'tag': 'front', 'label': 'Ön Görünüm'},
     {'tag': 'top', 'label': 'Üst Görünüm'},
@@ -65,51 +58,104 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
     {'tag': 'donor_area_back', 'label': 'Donör Bölgesi (Arka)'},
   ];
 
-  int get _totalSteps => _steps.length + 1; // 5 kamera + 1 onay
+  int get _totalSteps => _steps.length + 1;
   int _currentPage = 0;
   bool _isTakingPicture = false;
 
-  // --- "ZOR AMA DOĞRU" YÖNTEMİN DEĞİŞKENLERİ ---
   final Map<String, Size> _overlayOriginalSizes = {};
   final Map<String, List<Point<int>>> _overlaySampledPoints = {};
   bool _areMasksLoaded = false;
-  static const int _maskSamplingRate = 20; // Her 20 pikselde 1'ini kontrol et (Hız)
+  static const int _maskSamplingRate = 20;
 
   List<CameraDescription> _availableCameras = [];
   CameraLensDirection _selectedLensDirection = CameraLensDirection.front;
+
+  // ========== YENİ: SENSÖR DEĞİŞKENLERİ ==========
+  StreamSubscription<AccelerometerEvent>? _accelerometerSubscription;
+  double _devicePitch = 0.0; // Cihazın öne/arkaya eğimi (derece)
+  double _deviceRoll = 0.0;  // Cihazın sağa/sola eğimi (derece)
+  bool _isDeviceAngleCorrect = false; // Sensör açısı doğru mu?
 
   @override
   void initState() {
     super.initState();
     _pageController = PageController();
 
-    // 1. BEYİN (Segmenter - Doluluk)
     _selfieSegmenter = SelfieSegmenter(
       mode: SegmenterMode.stream,
       enableRawSizeMask: true,
     );
 
-    // 2. BEYİN (Face Detector - Hile Kontrolü)
     final faceOptions = FaceDetectorOptions(
       performanceMode: FaceDetectorMode.accurate,
-      enableClassification: true, // Açılar için
+      enableClassification: true,
       enableLandmarks: false,
       enableContours: false,
     );
     _faceDetector = FaceDetector(options: faceOptions);
 
-    // Overlay maskelerini hafızaya al, sonra kamerayı başlat
     _loadOverlayMasksAndInitializeCamera();
+    _startAccelerometerListener(); // YENİ: Sensör dinleyicisini başlat
   }
 
-  /// 1. FONKSİYON: Overlay'leri yükler, sonra kamerayı başlatır
+  // ========== YENİ: ACCELEROMETER DİNLEYİCİSİ ==========
+  void _startAccelerometerListener() {
+    _accelerometerSubscription = accelerometerEventStream(
+      samplingPeriod: const Duration(milliseconds: 200), // 5 Hz
+    ).listen((AccelerometerEvent event) {
+      if (!mounted) return;
+
+      // Accelerometer değerlerinden pitch ve roll hesapla
+      // x: Sağa/sola eğim, y: İleri/geri eğim, z: Yukarı/aşağı (yerçekimi)
+      final double x = event.x;
+      final double y = event.y;
+      final double z = event.z;
+
+      // Pitch: Cihazın öne/arkaya eğimi (0° = düz, +90° = yukarı bakan, -90° = aşağı bakan)
+      final double pitch = atan2(y, sqrt(x * x + z * z)) * (180 / pi);
+      
+      // Roll: Cihazın sağa/sola eğimi (0° = düz, +90° = sağa yatık, -90° = sola yatık)
+      final double roll = atan2(x, sqrt(y * y + z * z)) * (180 / pi);
+
+      setState(() {
+        _devicePitch = pitch;
+        _deviceRoll = roll;
+        _checkDeviceAngle(); // Açı kontrolünü yap
+      });
+    });
+  }
+
+  // ========== YENİ: CİHAZ AÇISI KONTROLÜ ==========
+  void _checkDeviceAngle() {
+    final String currentStepTag = _steps[_currentPage]['tag']!;
+    bool angleOk = false;
+
+    if (currentStepTag == 'top') {
+      // TEPE (TOP): Cihaz neredeyse düz (yere paralel) tutulmalı
+      // Pitch: -20° ile +20° arası (hafif tolerans)
+      // Roll: -15° ile +15° arası
+      angleOk = _devicePitch.abs() < 25 && _deviceRoll.abs() < 15;
+      
+    } else if (currentStepTag == 'donor_area_back') {
+      // ARKA (DONOR_AREA_BACK): Cihaz hafif aşağı eğik (başın arkasını görmek için)
+      // Pitch: -60° ile -30° arası (aşağıya doğru eğik)
+      // Roll: -15° ile +15° arası
+      angleOk = (_devicePitch >= -50 && _devicePitch <= -25) && _deviceRoll.abs() < 15;
+      
+    } else {
+      // ÖN, SAĞ, SOL: Cihaz normal dik pozisyonda (sensör kontrolü gerekmez)
+      angleOk = true;
+    }
+
+    _isDeviceAngleCorrect = angleOk;
+  }
+
   Future<void> _loadOverlayMasksAndInitializeCamera() async {
     try {
       _availableCameras = await availableCameras();
       if (_availableCameras.isEmpty) {
         throw Exception("Cihazda kamera bulunamadı.");
       }
-      // Varsayılan 'front' kamera yoksa, bulunan ilk kamerayı seç
       if (!_availableCameras.any((cam) => cam.lensDirection == _selectedLensDirection)) {
         _selectedLensDirection = _availableCameras.first.lensDirection;
       }
@@ -133,7 +179,6 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
     }
   }
 
-  /// 2. FONKSİYON: Tek bir overlay PNG'sini yükler ve piksellerini tarar
   Future<void> _loadOverlayMask(String tag) async {
     final String assetPath = 'assets/overlays/$tag.png';
     final ByteData data = await rootBundle.load(assetPath);
@@ -149,8 +194,7 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
     for (int y = 0; y < pngImage.height; y += _maskSamplingRate) {
       for (int x = 0; x < pngImage.width; x += _maskSamplingRate) {
         final pixel = pngImage.getPixel(x, y);
-        // Alfa kanalını (şeffaflığı) doğrudan kontrol et
-        if (pixel.a > 128) { // 128 = %50'den fazla opak
+        if (pixel.a > 128) {
           sampledPoints.add(Point(x, y));
         }
       }
@@ -161,16 +205,11 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
 
   Future<void> _initializeCamera() async {
     try {
-      // --- GÜNCELLENDİ ---
-      // Artık `_selectedLensDirection`'a göre kamerayı bul
       final CameraDescription cameraDescription = _availableCameras.firstWhere(
         (camera) => camera.lensDirection == _selectedLensDirection,
-        // (Bu orElse'e normalde girmemesi lazım ama garanti olsun)
         orElse: () => _availableCameras.first, 
       );
-      // --- GÜNCELLENDİ BİTTİ ---
 
-      // Kamera değiştirirken, eski controller'ı at
       await _cameraController?.dispose();
 
       _cameraController = CameraController(
@@ -180,13 +219,12 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
       );
 
       await _cameraController!.initialize();
-
       await _cameraController!.startImageStream((CameraImage image) {
         _processCameraImage(image);
       });
 
       if (mounted) {
-        setState(() {}); // Kamera hazır
+        setState(() {});
       }
     } catch (e) {
       if (mounted) {
@@ -198,15 +236,11 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
     }
   }
   
-  // --- YENİ FONKSİYON: Kamera Değiştirme ---
   void _switchCamera() async {
-    // Sadece 1 kamera varsa veya zaten işlem yapılıyorsa değiştirme
     if (_availableCameras.length < 2 || _isDetecting || _isTakingPicture) return;
 
-    // Görüntü akışını durdur
     await _cameraController?.stopImageStream();
     
-    // Yönü tersine çevir
     setState(() {
       _selectedLensDirection = 
         _selectedLensDirection == CameraLensDirection.front
@@ -214,10 +248,9 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
           : CameraLensDirection.front;
     });
     
-    // Yeni yön ile kamerayı yeniden başlat
-    // (_initializeCamera zaten eski controller'ı dispose edecektir)
     await _initializeCamera();
   }
+
   @override
   void dispose() {
     _pageController.dispose();
@@ -225,143 +258,128 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
     _selfieSegmenter.close();
     _faceDetector.close();
     _autoCaptureTimer?.cancel();
+    _accelerometerSubscription?.cancel(); // YENİ: Sensör dinleyicisini durdur
     super.dispose();
   }
 
-  // ####################################################################
-  // #################### İŞTE YENİ MANTIK BURADA #######################
-  // ####################################################################
-
+  // ========== GÜNCELLENMİŞ: SENSÖR + YÜZ + DOLULUK KONTROLÜ ==========
   Future<void> _processCameraImage(CameraImage image) async {
-  if (!_areMasksLoaded || _isDetecting || _isTakingPicture) return;
-  _isDetecting = true;
+    if (!_areMasksLoaded || _isDetecting || _isTakingPicture) return;
+    _isDetecting = true;
 
-  try {
-    final inputImage = _inputImageFromCameraImage(image);
-    bool isAligned = false;
-    final String currentStepTag = _steps[_currentPage]['tag']!;
+    try {
+      final inputImage = _inputImageFromCameraImage(image);
+      bool isAligned = false;
+      final String currentStepTag = _steps[_currentPage]['tag']!;
 
-    // --- 1. ADIM: ÖNCE DOLULUK KONTROLÜ (TÜM POZLAR İÇİN) ---
-    final segmentationMask = await _selfieSegmenter.processImage(inputImage);
-    final bool isFullEnough = _analyzeSegmentationMask(segmentationMask, image, currentStepTag);
+      // --- 1. ADIM: DOLULUK KONTROLÜ (TÜM POZLAR İÇİN) ---
+      final segmentationMask = await _selfieSegmenter.processImage(inputImage);
+      final bool isFullEnough = _analyzeSegmentationMask(segmentationMask, image, currentStepTag);
 
-    if (!isFullEnough) {
-      // Silüet "insan" ile dolu değilse, HİÇBİR ŞEY YAPMA.
-      isAligned = false;
-    } else {
-      // --- 2. ADIM: DOLULUK OK. ŞİMDİ HİLE KONTROLÜ (POZA GÖRE) ---
-      
-      final faces = await _faceDetector.processImage(inputImage);
-
-      // MANTIK 1: "ÜST" (top) ve "ARKA" (donor_area_back)
-      // Kural: Dolu olmalı, YÜZ OLMAMALI.
-      if (currentStepTag == 'top' || currentStepTag == 'donor_area_back') {
-        if (faces.isNotEmpty) {
-          isAligned = false; // Hata: Arkada/Üstte yüz olmamalı!
-          print("ML LOG (Back/Top): Hile! Yüz algılandı.");
-        } else {
-          isAligned = true; // Harika: Dolu VE yüz yok.
-          print("ML LOG (Back/Top): Dolu ve Yüz YOK. (OK)");
-        }
-      }
-      // MANTIK 2: "ÖN" (front) ve "YANLAR" (left_side, right_side)
-      // Kural: Dolu olmalı VE yüzün AÇISI doğru olmalı.
-      else {
-        if (faces.isEmpty) {
-          isAligned = false; // Hata: Ön/Yan pozda bir yüz bekliyorduk ama bulamadık.
-          print("ML LOG (Front/Side): Hata! Yüz bulunamadı.");
-        } else {
-          // Yüz bulundu. AÇISINI KONTROL ET.
-          final face = faces.first;
-          final double? angleY = face.headEulerAngleY; // Yaw (sağ-sol) açısı
-
-          if (angleY == null) {
+      if (!isFullEnough) {
+        isAligned = false;
+      } else {
+        // --- 2. ADIM: DOLULUK OK. ŞİMDİ POZ + SENSÖR KONTROLÜ ---
+        
+        // **YENİ MANTIK: TEPE ve ARKA için SENSÖR kontrolü ekle**
+        if (currentStepTag == 'top' || currentStepTag == 'donor_area_back') {
+          // Önce sensör açısını kontrol et
+          if (!_isDeviceAngleCorrect) {
             isAligned = false;
-            print("ML LOG (Front/Side): Yüz bulundu ama Açı (Y) bilgisi alınamadı.");
+            print("ML LOG ($currentStepTag): Cihaz açısı yanlış! Pitch: ${_devicePitch.toStringAsFixed(1)}°, Roll: ${_deviceRoll.toStringAsFixed(1)}°");
           } else {
-            
-            // "ÖN" pozu için +/- 25 derece tolerans
-            const double frontalTolerance = 25.0; 
-            // "YAN" pozu için 45 dereceden BÜYÜK olmalı
-            const double sideAngleThreshold = 45.0; 
+            // Sensör OK, şimdi yüz kontrolü (olmamalı)
+            final faces = await _faceDetector.processImage(inputImage);
+            if (faces.isNotEmpty) {
+              isAligned = false;
+              print("ML LOG ($currentStepTag): Hile! Yüz algılandı.");
+            } else {
+              isAligned = true;
+              print("ML LOG ($currentStepTag): Dolu, Sensör OK, Yüz YOK. ✓");
+            }
+          }
+        } 
+        // ÖN, SAĞ, SOL: Mevcut mantık (sadece yüz açısı kontrolü)
+        else {
+          final faces = await _faceDetector.processImage(inputImage);
+          if (faces.isEmpty) {
+            isAligned = false;
+            print("ML LOG ($currentStepTag): Hata! Yüz bulunamadı.");
+          } else {
+            final face = faces.first;
+            final double? angleY = face.headEulerAngleY;
 
-            if (currentStepTag == 'front') {
-              // "ÖN" pozu için açının +/- 25 derece İÇİNDE olmasını istiyoruz.
-              if (angleY.abs() < frontalTolerance) {
-                isAligned = true; // DOĞRU POZ (Dolu VE Önden)
-                print("ML LOG (Front): Dolu ve Açı Önden ($angleY). (OK)");
-              } else {
-                isAligned = false; // YANLIŞ POZ (Dolu ama YANDAN bakıyor)
-                print("ML LOG (Front): Hile! Açı önden değil: $angleY");
+            if (angleY == null) {
+              isAligned = false;
+              print("ML LOG ($currentStepTag): Yüz bulundu ama Açı (Y) bilgisi alınamadı.");
+            } else {
+              const double frontalTolerance = 25.0; 
+              const double sideAngleThreshold = 45.0; 
+
+              if (currentStepTag == 'front') {
+                if (angleY.abs() < frontalTolerance) {
+                  isAligned = true;
+                  print("ML LOG (Front): Dolu ve Açı Önden ($angleY). ✓");
+                } else {
+                  isAligned = false;
+                  print("ML LOG (Front): Hile! Açı önden değil: $angleY");
+                }
+              } 
+              else if (currentStepTag == 'left_side') {
+                if (angleY > sideAngleThreshold) {
+                  isAligned = true;
+                  print("ML LOG (Left-Side): Dolu ve Açı Sol Yandan ($angleY). ✓");
+                } else {
+                  isAligned = false;
+                  print("ML LOG (Left-Side): Yanlış yön veya yeterince dönülmedi: $angleY");
+                }
               }
-            } 
-            // ##################################################
-            // ############## İSTEDİĞİN DEĞİŞİKLİK ###############
-            // ##################################################
-            else if (currentStepTag == 'left_side') {
-              // "SOL YAN" için, kafa SAĞA dönmeli. Açı POZİTİF olmalı.
-              if (angleY > sideAngleThreshold) {
-                isAligned = true; // DOĞRU POZ (Dolu VE Sol Yan)
-                print("ML LOG (Left-Side): Dolu ve Açı Sol Yandan ($angleY). (OK)");
-              } else {
-                isAligned = false; // YANLIŞ POZ (Yanlış yön veya yeterince dönülmedi)
-                print("ML LOG (Left-Side): Yanlış yön veya yeterince dönülmedi: $angleY");
+              else { // 'right_side'
+                if (angleY < -sideAngleThreshold) {
+                  isAligned = true;
+                  print("ML LOG (Right-Side): Dolu ve Açı Sağ Yandan ($angleY). ✓");
+                } else {
+                  isAligned = false;
+                  print("ML LOG (Right-Side): Yanlış yön veya yeterince dönülmedi: $angleY");
+                }
               }
             }
-            else { // 'right_side'
-              // "SAĞ YAN" için, kafa SOLA dönmeli. Açı NEGATİF olmalı.
-              if (angleY < -sideAngleThreshold) {
-                isAligned = true; // DOĞRU POZ (Dolu VE Sağ Yan)
-                print("ML LOG (Right-Side): Dolu ve Açı Sağ Yandan ($angleY). (OK)");
-              } else {
-                isAligned = false; // YANLIŞ POZ (Yanlış yön veya yeterince dönülmedi)
-                print("ML LOG (Right-Side): Yanlış yön veya yeterince dönülmedi: $angleY");
-              }
-            }
-            // ##################################################
-            // ############ DEĞİŞİKLİK BİTİŞİ ###################
-            // ##################################################
           }
         }
       }
-    }
 
-    // --- OTOMATİK ÇEKİM MANTIĞI (Bu kısım aynı) ---
-    if (isAligned) {
-      if (!_isFaceAligned) {
-        if (mounted) setState(() => _isFaceAligned = true);
+      // --- OTOMATİK ÇEKİM MANTIĞı ---
+      if (isAligned) {
+        if (!_isFaceAligned) {
+          if (mounted) setState(() => _isFaceAligned = true);
+        }
+        if (_autoCaptureTimer == null && !_isTakingPicture) {
+          _autoCaptureTimer = Timer(const Duration(seconds: 3), () {
+            _takePicture();
+            _autoCaptureTimer = null;
+          });
+        }
+      } else {
+        if (_isFaceAligned) {
+          if (mounted) setState(() => _isFaceAligned = false);
+        }
+        _autoCaptureTimer?.cancel();
+        _autoCaptureTimer = null;
       }
-      if (_autoCaptureTimer == null && !_isTakingPicture) {
-        _autoCaptureTimer = Timer(const Duration(seconds: 3), () {
-          _takePicture();
-          _autoCaptureTimer = null;
-        });
-      }
-    } else {
-      if (_isFaceAligned) {
-        if (mounted) setState(() => _isFaceAligned = false);
-      }
-      _autoCaptureTimer?.cancel();
-      _autoCaptureTimer = null;
-    }
-    // --- Otomatik Çekim Sonu ---
 
-  } catch (e) {
-    print("ML Kit Hatası: $e");
-  } finally {
-    _isDetecting = false;
+    } catch (e) {
+      print("ML Kit Hatası: $e");
+    } finally {
+      _isDetecting = false;
+    }
   }
-}
 
-
-  /// GÜNCELLENMİŞ FONKSİYON: "GERÇEK" maske ile doluluk analizi (TÜM POZLAR İÇİN)
   bool _analyzeSegmentationMask(SegmentationMask? mask, CameraImage image, String currentStepTag) {
     if (mask == null) {
       print("ML LOG (Segmenter): Maske bulunamadı (Ekranda insan yok).");
       return false;
     }
 
-    // Hafızadan o adımın (top.png, left.png) "gerçek" noktalarını al
     final List<Point<int>>? pointsToCheck = _overlaySampledPoints[currentStepTag];
     final Size? pngSize = _overlayOriginalSizes[currentStepTag];
 
@@ -370,26 +388,18 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
       return false;
     }
 
-    // Koordinat sistemlerini eşitlemek için ölçekleme faktörleri
-    // (PNG'nin koordinatlarını -> ML Kit Mask'in koordinatlarına çevir)
-    // Bu, PNG'nin ve Kameranın (ve ML maskesinin) 9:16 olduğunu varsayar
     final double scaleX = mask.width / pngSize.width;
     final double scaleY = mask.height / pngSize.height;
 
     int totalPointsInMask = pointsToCheck.length;
     int alignedPixelCount = 0;
     
-    // Güven eşiği (%90'dan fazla 'insan' olmalı)
     const double confidenceThreshold = 0.90; 
 
-    // O adıma ait silüetin (örn: top.png) içindeki her bir 'gerçek' noktanın
-    // ML Kit'in 'insan' haritasında "insan" olarak işaretlenip işaretlenmediğini kontrol et
     for (final Point<int> pngPoint in pointsToCheck) {
-      // PNG noktasını, ML Kit Mask koordinatına ölçekle
       final int maskX = (pngPoint.x * scaleX).floor();
       final int maskY = (pngPoint.y * scaleY).floor();
 
-      // Bu noktanın maske sınırları içinde olduğundan emin ol
       if (maskX >= 0 && maskX < mask.width && maskY >= 0 && maskY < mask.height) {
         final int index = maskY * mask.width + maskX;
         if (index < mask.confidences.length) {
@@ -401,21 +411,14 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
       }
     }
 
-    
     final double fillPercentage = alignedPixelCount / totalPointsInMask;
-
-    
     const double targetFillPercentage = 0.95; 
-    
     final bool isAligned = fillPercentage >= targetFillPercentage;
     
-   
     print("ML LOG (Segmenter-$currentStepTag): Overlay Doldurma (insan ile): ${(fillPercentage * 100).toStringAsFixed(1)}% - Hizalı mı?: $isAligned");
 
     return isAligned;
   }
-
-
 
   Future<void> _takePicture() async {
     if (_isTakingPicture || _cameraController == null || !_cameraController!.value.isInitialized) {
@@ -463,7 +466,7 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
       ConsultationSubmitted(
         photos: _takenPhotos,
         angleTags: _steps.map((step) => step['tag']!).toList().sublist(0, _takenPhotos.length),
-        medicalFormData: {"note": "Flutter'dan yüklendi (Pixel Perfect v2)"},
+        medicalFormData: {"note": "Flutter'dan yüklendi (Sensör + ML Kit v3)"},
       ),
     );
   }
@@ -565,6 +568,9 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
       );
     }
     
+    final String currentTag = _steps[index]['tag']!;
+    final bool needsAngleCheck = (currentTag == 'top' || currentTag == 'donor_area_back');
+    
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
@@ -575,6 +581,44 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 10),
+          
+          // YENİ: Sensör açı göstergesi (sadece TEPE ve ARKA için)
+          if (needsAngleCheck)
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _isDeviceAngleCorrect ? Colors.green.withOpacity(0.2) : Colors.orange.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        _isDeviceAngleCorrect ? Icons.check_circle : Icons.warning,
+                        color: _isDeviceAngleCorrect ? Colors.green : Colors.orange,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _isDeviceAngleCorrect ? 'Cihaz açısı doğru!' : 'Cihaz açısını ayarlayın',
+                        style: TextStyle(
+                          color: _isDeviceAngleCorrect ? Colors.green : Colors.orange,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Pitch: ${_devicePitch.toStringAsFixed(1)}° | Roll: ${_deviceRoll.toStringAsFixed(1)}°',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ),
+          
+          const SizedBox(height: 10),
           Expanded(
             child: AspectRatio(
               aspectRatio: 9 / 16, 
@@ -584,10 +628,8 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
                   fit: StackFit.expand,
                   alignment: Alignment.center,
                   children: [
-             
                     CameraPreview(_cameraController!),
                     
-         
                     Image.asset(
                       'assets/overlays/${_steps[index]['tag']}.png',
                       fit: BoxFit.cover,
@@ -625,9 +667,11 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
               textAlign: TextAlign.center,
             )
           else
-            const Text(
-              'Lütfen kafanızı silüetin içini dolduracak şekilde hizalayın.',
-              style: TextStyle(fontSize: 18, color: Colors.orange, fontWeight: FontWeight.bold),
+            Text(
+              needsAngleCheck 
+                ? 'Lütfen cihazı doğru açıda tutup kafanızı silueti doldurun.'
+                : 'Lütfen kafanızı siluetin içini dolduracak şekilde hizalayın.',
+              style: const TextStyle(fontSize: 18, color: Colors.orange, fontWeight: FontWeight.bold),
               textAlign: TextAlign.center,
             )
         ],
@@ -693,7 +737,7 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
       metadata = InputImageMetadata(
         size: Size(image.width.toDouble(), image.height.toDouble()),
         rotation: rotation,
-        format: InputImageFormat.bgra8888, // iOS
+        format: InputImageFormat.bgra8888,
         bytesPerRow: plane.bytesPerRow,
       );
       bytes = plane.bytes;
@@ -707,7 +751,7 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
       metadata = InputImageMetadata(
         size: Size(image.width.toDouble(), image.height.toDouble()),
         rotation: rotation,
-        format: InputImageFormat.nv21, // Android
+        format: InputImageFormat.nv21,
         bytesPerRow: image.planes.first.bytesPerRow,
       );
     }
