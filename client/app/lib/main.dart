@@ -1,35 +1,41 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'auth/bloc/auth_bloc.dart';
-import '/auth/bloc/auth_event.dart';
-import '/auth/bloc/auth_state.dart';
+import 'package:flutter_localizations/flutter_localizations.dart'; // Dili ekle
+import '/l10n/app_localizations.dart'; // Dili ekle
+import '/core/theme/app_theme.dart'; // Temayı ekle
+
+// Servisleri/Depoları ekle
 import '/services/api_service.dart';
 import '/services/storage_service.dart';
 
-// Bu ekranları birazdan oluşturacağız
-import '/auth/view/login_screen.dart'; 
-import '/home/view/home_screen.dart'; 
+// BLoC ve Ekranları ekle
+import '/auth/bloc/auth_bloc.dart';
+import '/auth/bloc/auth_event.dart';
+import '/auth/bloc/auth_state.dart';
+import '/auth/view/login_screen.dart';
+
+// TODO: HomeScreen'i silip yerine MainHubScreen'i koyacağız
+import '/main_hub/view/main_hub_screen.dart'; 
 import '/splash/view/splash_screen.dart';
 
 void main() {
-  // 1. Adım: Servislerimizi (Depoları) oluştur (Bu zaten tamamdı)
+  // Servisleri oluştur (Bu zaten tamamdı)
   final ApiService apiService = ApiService();
   final SecureStorageService storageService = SecureStorageService();
 
   runApp(
-    // 2. Adım: Servisleri tüm alt widget'lara (ve BLoC'lara) tanıt
+    // Servisleri BLoC'lara tanıt
     MultiRepositoryProvider(
       providers: [
         RepositoryProvider.value(value: apiService),
         RepositoryProvider.value(value: storageService),
       ],
-      // 3. Adım: AuthBloc'u uygulamanın en üstüne yerleştir
+      // AuthBloc'u uygulamanın en üstüne yerleştir
       child: BlocProvider(
         create: (context) => AuthBloc(
-          // Servisleri RepositoryProvider'dan alıp BLoC'a pasla
           apiService: context.read<ApiService>(),
           storageService: context.read<SecureStorageService>(),
-        )..add(AuthCheckStatusRequested()), // <-- UYGULAMA BAŞLARKEN İLK EVENT'İ GÖNDER
+        )..add(AuthCheckStatusRequested()),
         child: const MyApp(),
       ),
     ),
@@ -38,46 +44,74 @@ void main() {
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
-@override
+
+  @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Smile Hair Clinic',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-      ),
-      // home: BlocBuilder<... (ESKİ YER)
+      debugShowCheckedModeBanner: false, // O sağ üstteki 'DEBUG' yazısını kaldırır
+
+      // --- YENİ TEMA AYARLARI ---
+      theme: AppThemes.lightTheme, // Açık Tema
+      darkTheme: AppThemes.darkTheme, // Koyu Tema
+      themeMode: ThemeMode.system, // Telefonun ayarına uysun
+
+      // --- YENİ DİL AYARLARI ---
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('en', ''), // İngilizce
+        Locale('tr', ''), // Türkçe
+      ],
+      // --- BİTTİ ---
+
       home: BlocListener<AuthBloc, AuthState>(
-        // KULAK (LISTENER): Bu, ekran değişse bile hep dinler.
         listener: (context, state) {
-          // Eğer "Hata" durumu gelirse, hangi ekranda olursak olalım
-          // SnackBar'ı GÖSTER.
           if (state is AuthFailure) {
             ScaffoldMessenger.of(context).hideCurrentSnackBar();
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text(state.message), // BLoC'tan gelen "insanlaşmış" mesaj
+                // DİL DESTEĞİ: Hata mesajını BLoC'tan değil, dil dosyasından al
+                content: Text(_handleAuthError(context, state)),
                 backgroundColor: Colors.red,
               ),
             );
           }
         },
-        // GÖZ (BUILDER): Bu, sadece ekranı değiştirir.
         child: BlocBuilder<AuthBloc, AuthState>(
           builder: (context, state) {
-            // 1. Durum: Giriş başarılıysa
             if (state is AuthAuthenticated) {
-              return const HomeScreen();
+              return const MainHubScreen(); // TODO: Faz 7'de burası MainHubScreen olacak
             }
-            // 2. Durum: Giriş yapılmamışsa VEYA Hata alındıysa
             if (state is AuthUnauthenticated || state is AuthFailure) {
               return const LoginScreen();
             }
-            // Diğer tüm durumlar (AuthInitial, AuthLoading)
             return const SplashScreen();
           },
         ),
       ),
     );
+  }
+
+  // Hata mesajlarını 'dil'e göre "tercüme" eden yardımcı fonksiyon
+  String _handleAuthError(BuildContext context, AuthFailure state) {
+    // AppLocalizations'ı al
+    final loc = AppLocalizations.of(context)!;
+
+    // BLoC'tan gelen "insanlaşmış" mesajı kontrol et
+    if (state.message == "Email veya şifre hatalı.") {
+      return loc.errorLoginFailed;
+    }
+    if (state.message == "Geçersiz email formatı girdiniz.") {
+      return loc.errorEmailFormat;
+    }
+    // Diğerlerini de buraya ekleyebiliriz...
+
+    // Eğer tanıyamazsak, BLoC'un mesajını göster
+    return state.message;
   }
 }

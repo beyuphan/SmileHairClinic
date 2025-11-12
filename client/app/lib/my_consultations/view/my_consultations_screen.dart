@@ -5,6 +5,7 @@ import '/my_consultations/bloc/my_consultations_event.dart';
 import '/my_consultations/bloc/my_consultations_state.dart';
 import '/services/api_service.dart';
 import '/consultation/detail/view/consultation_detail_screen.dart';
+import '/chat/view/chat_screen.dart'; // <-- YENİ SOHBET EKRANI (Birazdan yapacağız)
 
 class MyConsultationsScreen extends StatelessWidget {
   const MyConsultationsScreen({super.key});
@@ -69,7 +70,19 @@ class MyConsultationsScreen extends StatelessWidget {
                       // Tarih (şimdilik ham formatta)
                       subtitle: Text('Tarih: ${consultation['createdAt']}'),
 
-                      trailing: const Icon(Icons.arrow_forward_ios),
+                      trailing: IconButton(
+                            icon: const Icon(Icons.chat_bubble_outline),
+                            onPressed: () {
+                              // Tıklayınca 'ChatScreen'e git ve ID'yi yolla
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => ChatScreen(
+                                    consultationId: consultation['id'],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
                       onTap: () {
                         Navigator.of(context).push(
                               MaterialPageRoute(

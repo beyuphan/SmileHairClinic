@@ -1,0 +1,14 @@
+{
+  "loginScreenTitle": "Giriş Yap",
+  "loginButton": "Giriş Yap",
+  "emailLabel": "E-posta",
+  "passwordLabel": "Şifre",
+  "errorLoginFailed": "Email veya şifre hatalı.",
+  "errorEmailFormat": "Geçersiz email formatı.",
+  "errorServerConnection": "Sunucuya bağlanılamadı: {errorMessage}",
+  "errorUnknown": "Bilinmeyen bir hata oluştu: {errorMessage}",
+  "homeScreenTitle": "Ana Sayfa",
+  "logoutButton": "Çıkış Yap",
+  "startConsultationButton": "Yeni Konsültasyon Başlat",
+  "myConsultationsButton": "Geçmiş Konsültasyonlarım"
+}

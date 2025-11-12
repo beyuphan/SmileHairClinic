@@ -5,6 +5,8 @@ import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { S3Module } from './s3/s3.module';
 import { ConsultationModule } from './consultation/consultation.module';
+import { TimelineModule } from './timeline/timeline.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -14,6 +16,8 @@ import { ConsultationModule } from './consultation/consultation.module';
     AuthModule,
     S3Module,
     ConsultationModule,
+    TimelineModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [AppService],

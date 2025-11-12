@@ -1,0 +1,14 @@
+{
+  "loginScreenTitle": "Sign In",
+  "loginButton": "Login",
+  "emailLabel": "Email",
+  "passwordLabel": "Password",
+  "errorLoginFailed": "Invalid email or password.",
+  "errorEmailFormat": "Invalid email format.",
+  "errorServerConnection": "Could not connect to the server: {errorMessage}",
+  "errorUnknown": "An unknown error occurred: {errorMessage}",
+  "homeScreenTitle": "Home",
+  "logoutButton": "Logout",
+  "startConsultationButton": "Start New Consultation",
+  "myConsultationsButton": "My Consultations"
+}

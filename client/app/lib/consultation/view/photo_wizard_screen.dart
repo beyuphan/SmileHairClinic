@@ -11,14 +11,12 @@ import 'package:google_mlkit_selfie_segmentation/google_mlkit_selfie_segmentatio
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:image/image.dart' as img;
 import 'package:sensors_plus/sensors_plus.dart';
-// import 'package:audioplayers/audioplayers.dart'; // <-- KALDIRILDI
-// import 'package:flutter_tts/flutter_tts.dart'; // <-- KALDIRILDI
 
 import '/consultation/bloc/consultation_bloc.dart';
 import '/consultation/bloc/consultation_event.dart';
 import '/consultation/bloc/consultation_state.dart';
 import '/services/api_service.dart';
-import '/helper/audio_helper.dart'; // <-- YENİ IMPORT
+import '/helper/audio_helper.dart';
 
 class PhotoWizardScreen extends StatelessWidget {
  const PhotoWizardScreen({super.key});
@@ -73,18 +71,19 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
  List<CameraDescription> _availableCameras = [];
  CameraLensDirection _selectedLensDirection = CameraLensDirection.front;
 
- // ========== YENİ: SENSÖR DEĞİŞKENLERİ ==========
  StreamSubscription<AccelerometerEvent>? _accelerometerSubscription;
- double _devicePitch = 0.0; // Cihazın öne/arkaya eğimi (derece)
- double _deviceRoll = 0.0; // Cihazın sağa/sola eğimi (derece)
- bool _isDeviceAngleCorrect = false; // Sensör açısı doğru mu?
+ double _devicePitch = 0.0;
+ double _deviceRoll = 0.0;
+ bool _isDeviceAngleCorrect = false;
 
- // ========== YENİ: SES YÖNETİCİSİ ==========
  late AudioFeedbackHelper _audioHelper;
  bool _hasSpokenInstructionForCurrentStep = false;
- bool _hasPlayedAlignmentSound = false;
- bool _isSpeechEnabled = true; // UI için ayrı flag
- DateTime? _lastWarningTime;
+ bool _isSpeechEnabled = true;
+ DateTime? _lastWarningTime; // TTS spam koruması
+
+ // YENİ: Geiger/Bip sesi yönetimi
+ DateTime? _lastProgressBeepTime;
+ // KALDIRILDI: _isSpeakingWarning bayrağı kaldırıldı, artık gerek yok.
 
 
  @override
@@ -100,63 +99,50 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
   final faceOptions = FaceDetectorOptions(
    performanceMode: FaceDetectorMode.accurate,
    enableClassification: true,
-   enableLandmarks: false,
-   enableContours: false,
   );
   _faceDetector = FaceDetector(options: faceOptions);
 
-  _audioHelper = AudioFeedbackHelper(); // YENİ: Ses yöneticisini başlat
+  _audioHelper = AudioFeedbackHelper();
 
   _loadOverlayMasksAndInitializeCamera();
   _startAccelerometerListener();
  }
 
- // ========== YENİ: ACCELEROMETER DİNLEYİCİSİ ==========
+ 
  void _startAccelerometerListener() {
   _accelerometerSubscription = accelerometerEventStream(
-   samplingPeriod: const Duration(milliseconds: 200), // 5 Hz
+   samplingPeriod: const Duration(milliseconds: 200),
   ).listen((AccelerometerEvent event) {
    if (!mounted) return;
 
-   // Accelerometer değerlerinden pitch ve roll hesapla
-   // x: Sağa/sola eğim, y: İleri/geri eğim, z: Yukarı/aşağı (yerçekimi)
    final double x = event.x;
    final double y = event.y;
    final double z = event.z;
 
-   // Pitch: Cihazın öne/arkaya eğimi (0° = düz, +90° = yukarı bakan, -90° = aşağı bakan)
    final double pitch = atan2(y, sqrt(x * x + z * z)) * (180 / pi);
-   
-   // Roll: Cihazın sağa/sola eğimi (0° = düz, +90° = sağa yatık, -90° = sola yatık)
    final double roll = atan2(x, sqrt(y * y + z * z)) * (180 / pi);
 
    setState(() {
     _devicePitch = pitch;
     _deviceRoll = roll;
-    _checkDeviceAngle(); // Açı kontrolünü yap
+    _checkDeviceAngle();
    });
   });
  }
 
- // ========== YENİ: CİHAZ AÇISI KONTROLÜ ==========
  void _checkDeviceAngle() {
+  if (_currentPage >= _steps.length) {
+   _isDeviceAngleCorrect = true;
+   return;
+  }
   final String currentStepTag = _steps[_currentPage]['tag']!;
   bool angleOk = false;
 
   if (currentStepTag == 'top') {
-   // TEPE (TOP): Cihaz neredeyse düz (yere paralel) tutulmalı
-   // Pitch: -20° ile +20° arası (hafif tolerans)
-   // Roll: -15° ile +15° arası
    angleOk = _devicePitch.abs() < 25 && _deviceRoll.abs() < 15;
-   
   } else if (currentStepTag == 'donor_area_back') {
-   // ARKA (DONOR_AREA_BACK): Cihaz hafif aşağı eğik (başın arkasını görmek için)
-   // Pitch: -60° ile -30° arası (aşağıya doğru eğik)
-   // Roll: -15° ile +15° arası
    angleOk = (_devicePitch >= -50 && _devicePitch <= -25) && _deviceRoll.abs() < 15;
-   
   } else {
-   // ÖN, SAĞ, SOL: Cihaz normal dik pozisyonda (sensör kontrolü gerekmez)
    angleOk = true;
   }
 
@@ -179,10 +165,8 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
    }
    if (mounted) {
     setState(() => _areMasksLoaded = true);
-    print("Tüm overlay maskeleri başarıyla yüklendi ve örneklendi.");
     _initializeCamera();
-    
-    // İLK ADIM İÇİN TALİMAT VER (2 saniye sonra) 🔊
+
     Future.delayed(const Duration(seconds: 2), () {
      if (mounted && _currentPage < _steps.length && !_hasSpokenInstructionForCurrentStep) {
       _audioHelper.speakStepInstruction(_steps[_currentPage]['tag']!);
@@ -221,14 +205,13 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
    }
   }
   _overlaySampledPoints[tag] = sampledPoints;
-  print("'$tag' için ${sampledPoints.length} adet kritik nokta yüklendi.");
  }
 
  Future<void> _initializeCamera() async {
   try {
    final CameraDescription cameraDescription = _availableCameras.firstWhere(
     (camera) => camera.lensDirection == _selectedLensDirection,
-    orElse: () => _availableCameras.first, 
+    orElse: () => _availableCameras.first,
    );
 
    await _cameraController?.dispose();
@@ -256,19 +239,16 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
    }
   }
  }
- 
+
  void _switchCamera() async {
   if (_availableCameras.length < 2 || _isDetecting || _isTakingPicture) return;
-
   await _cameraController?.stopImageStream();
-  
   setState(() {
-   _selectedLensDirection = 
+   _selectedLensDirection =
     _selectedLensDirection == CameraLensDirection.front
      ? CameraLensDirection.back
      : CameraLensDirection.front;
   });
-  
   await _initializeCamera();
  }
 
@@ -280,11 +260,49 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
   _faceDetector.close();
   _autoCaptureTimer?.cancel();
   _accelerometerSubscription?.cancel();
-  _audioHelper.dispose(); // YENİ: Ses kaynaklarını temizle
+  _audioHelper.dispose();
   super.dispose();
  }
+ 
 
- // ========== GÜNCELLENMİŞ: SENSÖR + YÜZ + DOLULUK KONTROLÜ ==========
+ /// YENİ: Spam korumalı, jenerik TTS uyarı tetikleyici
+ void _triggerGenericWarning(VoidCallback audioFunction) {
+  final now = DateTime.now();
+  // YENİ: 4 saniyede bir konuşsun
+  final shouldSpeak = _lastWarningTime == null ||
+   now.difference(_lastWarningTime!).inSeconds >= 4; 
+  
+  if (shouldSpeak && _isSpeechEnabled) {
+   audioFunction();
+   _lastWarningTime = now;
+  }
+ }
+
+ /// YENİ: Top/Back adımları için akıllı sensör mesajı döndürür
+ String? _getSmartSensorWarning(String stepTag) {
+  if (stepTag == 'top') {
+    // Target: pitch.abs() < 25, roll.abs() < 15
+    if (_devicePitch.abs() > 25) {
+        return _devicePitch > 0 ? "Cihazı biraz öne eğin." : "Cihazı biraz geriye eğin.";
+    } else if (_deviceRoll.abs() > 15) {
+        return _deviceRoll > 0 ? "Cihazı sola yatırın." : "Cihazı sağa yatırın.";
+    }
+  } else if (stepTag == 'donor_area_back') {
+    // Target: pitch >= -50 && pitch <= -25, roll.abs() < 15
+    if (_devicePitch > -25) {
+        return "Daha çok aşağı eğin.";
+    } else if (_devicePitch < -50) {
+        return "Çok eğdiniz, az kaldırın.";
+    } else if (_deviceRoll.abs() > 15) {
+        return _deviceRoll > 0 ? "Cihazı sola yatırın." : "Cihazı sağa yatırın.";
+    }
+  }
+  return null; // Açı doğru veya ilgili adım değil
+ }
+
+ // ========================================================================
+ // ==================== YENİDEN DÜZENLENMİŞ İŞLEME MANTIĞI ====================
+ // ========================================================================
  Future<void> _processCameraImage(CameraImage image) async {
   if (!_areMasksLoaded || _isDetecting || _isTakingPicture) return;
   _isDetecting = true;
@@ -294,99 +312,96 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
    bool isAligned = false;
    final String currentStepTag = _steps[_currentPage]['tag']!;
 
-   // --- 1. ADIM: DOLULUK KONTROLÜ (TÜM POZLAR İÇİN) ---
-   final segmentationMask = await _selfieSegmenter.processImage(inputImage);
-   final bool isFullEnough = _analyzeSegmentationMask(segmentationMask, image, currentStepTag);
+   // --- 1. DOLULUK KONTROLÜ (Artık % döndürüyor) ---
+   final double fillPercentage = _analyzeSegmentationMask(
+    await _selfieSegmenter.processImage(inputImage), currentStepTag
+   );
+   const double targetFillPercentage = 0.92; // %92 hedef
+   final bool isFullEnough = fillPercentage >= targetFillPercentage;
 
    if (!isFullEnough) {
     isAligned = false;
    } else {
-    // --- 2. ADIM: DOLULUK OK. ŞİMDİ POZ + SENSÖR KONTROLÜ ---
-    
-    // **YENİ MANTIK: TEPE ve ARKA için SENSÖR kontrolü ekle**
+    // --- 2. POZ VE SENSÖR KONTROLÜ (Akıllı uyarı eklendi) ---
     if (currentStepTag == 'top' || currentStepTag == 'donor_area_back') {
-     // Önce sensör açısını kontrol et
      if (!_isDeviceAngleCorrect) {
       isAligned = false;
-      print("ML LOG ($currentStepTag): Cihaz açısı yanlış! Pitch: ${_devicePitch.toStringAsFixed(1)}°, Roll: ${_deviceRoll.toStringAsFixed(1)}°");
-     } else {
-      // Sensör OK, şimdi yüz kontrolü (olmamalı)
-      final faces = await _faceDetector.processImage(inputImage);
-      if (faces.isNotEmpty) {
-       isAligned = false;
-       print("ML LOG ($currentStepTag): Hile! Yüz algılandı.");
-      } else {
-       isAligned = true;
-       print("ML LOG ($currentStepTag): Dolu, Sensör OK, Yüz YOK. ✓");
+      // YENİ: Akıllı sensör uyarısını tetikle
+      String? sensorWarning = _getSmartSensorWarning(currentStepTag);
+      if(sensorWarning != null) {
+       _triggerGenericWarning(() => _audioHelper.speakCustom(sensorWarning));
       }
+     } else {
+      final faces = await _faceDetector.processImage(inputImage);
+      isAligned = faces.isEmpty; // Yüz olmamalı
      }
-    } 
-    // ÖN, SAĞ, SOL: Mevcut mantık (sadece yüz açısı kontrolü)
-    else {
+    } else { // Ön, Sağ, Sol
      final faces = await _faceDetector.processImage(inputImage);
      if (faces.isEmpty) {
       isAligned = false;
-      print("ML LOG ($currentStepTag): Hata! Yüz bulunamadı.");
+      _triggerGenericWarning(() => _audioHelper.speakFaceNotFound());
      } else {
       final face = faces.first;
       final double? angleY = face.headEulerAngleY;
-
       if (angleY == null) {
        isAligned = false;
-       print("ML LOG ($currentStepTag): Yüz bulundu ama Açı (Y) bilgisi alınamadı.");
       } else {
-       const double frontalTolerance = 25.0; 
-       const double sideAngleThreshold = 45.0; 
-
-       if (currentStepTag == 'front') {
-        if (angleY.abs() < frontalTolerance) {
-         isAligned = true;
-         print("ML LOG (Front): Dolu ve Açı Önden ($angleY). ✓");
-        } else {
-         isAligned = false;
-         print("ML LOG (Front): Hile! Açı önden değil: $angleY");
-        }
-       } 
-       else if (currentStepTag == 'left_side') {
-        if (angleY > sideAngleThreshold) {
-         isAligned = true;
-         print("ML LOG (Left-Side): Dolu ve Açı Sol Yandan ($angleY). ✓");
-        } else {
-         isAligned = false;
-         print("ML LOG (Left-Side): Yanlış yön veya yeterince dönülmedi: $angleY");
-        }
-       }
-       else { // 'right_side'
-        if (angleY < -sideAngleThreshold) {
-         isAligned = true;
-         print("ML LOG (Right-Side): Dolu ve Açı Sağ Yandan ($angleY). ✓");
-        } else {
-         isAligned = false;
-         print("ML LOG (Right-Side): Yanlış yön veya yeterince dönülmedi: $angleY");
-        }
+       const double frontalTolerance = 25.0;
+       const double sideAngleThreshold = 45.0;
+       switch (currentStepTag) {
+        case 'front': isAligned = angleY.abs() < frontalTolerance; break;
+        case 'left_side': isAligned = angleY > sideAngleThreshold; break;
+        case 'right_side': isAligned = angleY < -sideAngleThreshold; break;
+        default: isAligned = false;
        }
       }
      }
     }
    }
 
-   // --- OTOMATİK ÇEKİM MANTIĞı ---
+   // --- 3. GEIGER BİP MANTIĞI (GÜNCELLENDİ) ---
+   // DEĞİŞİKLİK: '_isSpeakingWarning' kontrolü kaldırıldı.
+   // Artık hizalı değilse VE doluluk varsa HER ZAMAN çalacak.
+   if (!isAligned && fillPercentage > 0.1) {
+    final now = DateTime.now();
+    final double progress = (fillPercentage - 0.1).clamp(0, 1) / (targetFillPercentage - 0.1);
+    final int requiredDelayMs = max(150, 1000 - (850 * progress.clamp(0, 1))).toInt();
+
+    if (_lastProgressBeepTime == null || now.difference(_lastProgressBeepTime!).inMilliseconds > requiredDelayMs) {
+     _audioHelper.playTick(); // 🔊 Geiger Bip'i
+     _lastProgressBeepTime = now;
+    }
+   } else if (isAligned) {
+       _lastProgressBeepTime = null; // Hizalanınca Geiger'i sustur
+   }
+
+
+   // --- 4. OTOMATİK ÇEKİM MANTIĞI (TTS KALDIRILDI) ---
    if (isAligned) {
     if (!_isFaceAligned) {
-     if (mounted) setState(() => _isFaceAligned = true);
-    }
-    if (_autoCaptureTimer == null && !_isTakingPicture) {
-     _autoCaptureTimer = Timer(const Duration(seconds: 3), () {
-      _takePicture();
-      _autoCaptureTimer = null;
-     });
+     // HİZALAMA YENİ SAĞLANDI
+     setState(() => _isFaceAligned = true);
+     _lastProgressBeepTime = null; // Geiger'i sustur
+     _audioHelper.playAlignmentSuccess(); // 🔊 Başarı Bip'i
+     // KALDIRILDI: _audioHelper.speakAlignmentSuccess();
+
+     if (_autoCaptureTimer == null && !_isTakingPicture) {
+      _audioHelper.speakCountdown(); // 🗣️ SESSİZ Bip-Bip-Bip
+      _autoCaptureTimer = Timer(const Duration(milliseconds: 3200), () {
+       _takePicture();
+       _autoCaptureTimer = null;
+      });
+     }
     }
    } else {
     if (_isFaceAligned) {
-     if (mounted) setState(() => _isFaceAligned = false);
+     // HİZALAMA YENİ KAYBOLDU
+     setState(() => _isFaceAligned = false);
+     _audioHelper.playAlignmentLost(); // 🔊 Uyarı Bip'i
+     _audioHelper.stopAll(); // Geri sayımı kes
+     _autoCaptureTimer?.cancel();
+     _autoCaptureTimer = null;
     }
-    _autoCaptureTimer?.cancel();
-    _autoCaptureTimer = null;
    }
 
   } catch (e) {
@@ -396,32 +411,24 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
   }
  }
 
- bool _analyzeSegmentationMask(SegmentationMask? mask, CameraImage image, String currentStepTag) {
+ // ... (analyzeSegmentationMask metodu aynı) ...
+ double _analyzeSegmentationMask(SegmentationMask? mask, String currentStepTag) {
   if (mask == null) {
-   print("ML LOG (Segmenter): Maske bulunamadı (Ekranda insan yok).");
-   return false;
+   return 0.0;
   }
-
   final List<Point<int>>? pointsToCheck = _overlaySampledPoints[currentStepTag];
   final Size? pngSize = _overlayOriginalSizes[currentStepTag];
-
   if (pointsToCheck == null || pngSize == null || pointsToCheck.isEmpty) {
-   print("Hata: '$currentStepTag' için overlay noktaları bulunamadı.");
-   return false;
+   return 0.0;
   }
-
   final double scaleX = mask.width / pngSize.width;
   final double scaleY = mask.height / pngSize.height;
-
   int totalPointsInMask = pointsToCheck.length;
   int alignedPixelCount = 0;
-  
-  const double confidenceThreshold = 0.90; 
-
+  const double confidenceThreshold = 0.90;
   for (final Point<int> pngPoint in pointsToCheck) {
    final int maskX = (pngPoint.x * scaleX).floor();
    final int maskY = (pngPoint.y * scaleY).floor();
-
    if (maskX >= 0 && maskX < mask.width && maskY >= 0 && maskY < mask.height) {
     final int index = maskY * mask.width + maskX;
     if (index < mask.confidences.length) {
@@ -432,53 +439,20 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
     }
    }
   }
-
   final double fillPercentage = alignedPixelCount / totalPointsInMask;
-  
-  // ========== YENİ: MANTIKLI EŞİKLER VE SES TETİKLEYİCİLERİ ==========
-  const double targetFillPercentage = 0.92; // %95 çok katı, %92 yeterli
-  const double warningThreshold = 0.85;   // %85'in altında uyarı ver
-  const double tooFarThreshold = 0.50;   // %50'nin altında "çok uzak" uyarısı
-  
-  final bool isAligned = fillPercentage >= targetFillPercentage;
-  
-  // Ses Tetikleyicileri (Her 3 saniyede bir konuşsun, spam olmasın)
-  final now = DateTime.now();
-  final shouldSpeak = _lastWarningTime == null || 
-            now.difference(_lastWarningTime!).inSeconds >= 3;
-  
-  if (shouldSpeak) {
-   if (fillPercentage < tooFarThreshold) {
-    // ÇOK UZAK (<%50): "Daha yakın durun"
-    _audioHelper.speakCustom("Lütfen kameraya daha yakın durun");
-    _lastWarningTime = now;
-   } else if (fillPercentage >= tooFarThreshold && fillPercentage < warningThreshold) {
-    // ORTA MESAFE (%50-%85): "Biraz daha yaklaşın"
-    _audioHelper.speakCustom("Biraz daha yaklaşın ve siluetin içini doldurun");
-    _lastWarningTime = now;
-   } else if (fillPercentage >= warningThreshold && fillPercentage < targetFillPercentage) {
-    // NEREDEYSE TAMAM (%85-%92): "Çok yakın, biraz daha"
-    _audioHelper.speakCustom("Çok yaklaştınız, biraz daha");
-    _lastWarningTime = now;
-   }
-  }
-  
-  print("ML LOG (Segmenter-$currentStepTag): Overlay Doldurma (insan ile): ${(fillPercentage * 100).toStringAsFixed(1)}% - Hizalı mı?: $isAligned");
-
-  return isAligned;
+  print("ML LOG (Segmenter-$currentStepTag): Doluluk: ${(fillPercentage * 100).toStringAsFixed(1)}%");
+  return fillPercentage; // Yüzdeyi döndür
  }
 
+
+ /// DEĞİŞİKLİK: _takePicture (speakPhotoTaken artık sadece deklanşör çalıyor)
  Future<void> _takePicture() async {
   if (_isTakingPicture || _cameraController == null || !_cameraController!.value.isInitialized) {
    return;
   }
-
   try {
    setState(() => _isTakingPicture = true);
-   
-   // 1. FOTOĞRAF ÇEKİM SESİ ÇAL 📸
-   // _audioHelper.playShutterSound(); // speakPhotoTaken içinde zaten var
-   
+
    final photo = await _cameraController!.takePicture();
 
    if (_currentPage < _takenPhotos.length) {
@@ -487,20 +461,19 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
     _takenPhotos.add(photo);
    }
 
-   // 2. "ÇEKİM TAMAMLANDI" SESLİ GERİ BİLDİRİM 🔊
-   _audioHelper.speakPhotoTaken();
+   // YENİ: Bu fonksiyon artık SADECE deklanşör sesi çalıyor.
+   await _audioHelper.speakPhotoTaken(); 
 
    if (_pageController.page! < _totalSteps - 1) {
-    // Sayfa değişirken ses flaglerini sıfırla
     _hasSpokenInstructionForCurrentStep = false;
-    _hasPlayedAlignmentSound = false;
-    
+    _lastWarningTime = null;
+    _lastProgressBeepTime = null; // Bip zamanlayıcısını sıfırla
+
     _pageController.nextPage(
      duration: const Duration(milliseconds: 300),
      curve: Curves.easeIn,
     );
-    
-    // 3. YENİ ADIM İÇİN TALİMAT VER (1 saniye sonra) 🔊
+
     Future.delayed(const Duration(seconds: 1), () {
      if (mounted && _currentPage < _steps.length) {
       _audioHelper.speakStepInstruction(_steps[_currentPage]['tag']!);
@@ -520,20 +493,23 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
    }
   }
  }
-
+ 
+ // ... (submitConsultation metodu aynı) ...
  void _submitConsultation() {
-  if(_takenPhotos.length < _steps.length) { 
+  if (_takenPhotos.length < _steps.length) {
    ScaffoldMessenger.of(context).showSnackBar(
     const SnackBar(content: Text('Lütfen tüm zorunlu 5 fotoğrafı çekin.'), backgroundColor: Colors.orange),
    );
    return;
   }
+  final photosToSubmit = _takenPhotos.sublist(0, _steps.length);
+  final tagsToSubmit = _steps.map((step) => step['tag']!).toList();
 
   context.read<ConsultationBloc>().add(
    ConsultationSubmitted(
-    photos: _takenPhotos,
-    angleTags: _steps.map((step) => step['tag']!).toList().sublist(0, _takenPhotos.length),
-    medicalFormData: {"note": "Flutter'dan yüklendi (Sensör + ML Kit v3)"},
+    photos: photosToSubmit,
+    angleTags: tagsToSubmit,
+    medicalFormData: {"note": "Flutter (v6 - Smart Sensor TTS)"},
    ),
   );
  }
@@ -560,17 +536,16 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
      leading: _currentPage == 0
       ? null
       : IconButton(
-        icon: const Icon(Icons.arrow_back),
-        onPressed: () {
-         _audioHelper.stopAll(); // Sesleri durdur
-         _pageController.previousPage(
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeIn,
-         );
-        },
-       ),
+       icon: const Icon(Icons.arrow_back),
+       onPressed: () {
+        _audioHelper.stopAll();
+        _pageController.previousPage(
+         duration: const Duration(milliseconds: 300),
+         curve: Curves.easeIn,
+        );
+       },
+      ),
      actions: [
-      // YENİ: Ses kontrol butonu
       IconButton(
        icon: Icon(_isSpeechEnabled ? Icons.volume_up : Icons.volume_off),
        tooltip: 'Sesli talimatları ${_isSpeechEnabled ? 'kapat' : 'aç'}',
@@ -588,7 +563,27 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
       PageView.builder(
        controller: _pageController,
        physics: const NeverScrollableScrollPhysics(),
-       onPageChanged: (page) => setState(() => _currentPage = page),
+       onPageChanged: (page) {
+        setState(() {
+         _currentPage = page;
+         _isFaceAligned = false;
+         _autoCaptureTimer?.cancel();
+         _autoCaptureTimer = null;
+         _audioHelper.stopAll();
+         // YENİ: Sayfa değişince tüm ses durumlarını sıfırla
+         _lastProgressBeepTime = null;
+         _lastWarningTime = null;
+        });
+        if (page >= _steps.length) {
+         // Bu, onay ekranı demektir. Stream'i durdur.
+         _cameraController?.stopImageStream();
+        } else if (_cameraController != null && !_cameraController!.value.isStreamingImages) {
+         // Eğer kullanıcı onay ekranından geri dönerse stream'i yeniden başlat
+         _cameraController!.startImageStream((image) {
+          _processCameraImage(image);
+         });
+        }
+       },
        itemCount: _totalSteps,
        itemBuilder: (context, index) {
         if (index < _steps.length) {
@@ -598,7 +593,7 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
         }
        },
       ),
-      
+      // ... (Yükleniyor ekranı - BlocBuilder aynı) ...
       BlocBuilder<ConsultationBloc, ConsultationState>(
        builder: (context, state) {
         if (state is ConsultationUploadInProgress) {
@@ -633,27 +628,16 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
    ),
   );
  }
-
+ 
+ // ... (buildCameraStep, buildConfirmStep, _inputImageFromCameraImage metodları aynı) ...
  Widget _buildCameraStep(int index) {
   if (_cameraController == null || !_cameraController!.value.isInitialized || !_areMasksLoaded) {
-   return Center(
-    child: Column(
-     mainAxisAlignment: MainAxisAlignment.center,
-     children: [
-      const CircularProgressIndicator(color: Colors.white),
-      const SizedBox(height: 20),
-      Text(
-       _areMasksLoaded ? "Kamera başlatılıyor..." : "Maskeler yükleniyor...",
-       style: const TextStyle(color: Colors.white),
-      ),
-     ],
-    ),
-   );
+   return const Center(child: CircularProgressIndicator());
   }
-  
+
   final String currentTag = _steps[index]['tag']!;
   final bool needsAngleCheck = (currentTag == 'top' || currentTag == 'donor_area_back');
-  
+
   return Padding(
    padding: const EdgeInsets.all(16.0),
    child: Column(
@@ -664,8 +648,6 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
       textAlign: TextAlign.center,
      ),
      const SizedBox(height: 10),
-     
-     // YENİ: Sensör açı göstergesi (sadece TEPE ve ARKA için)
      if (needsAngleCheck)
       Container(
        padding: const EdgeInsets.all(8),
@@ -690,21 +672,20 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
              fontWeight: FontWeight.bold,
             ),
            ),
-           ],
+          ],
          ),
          const SizedBox(height: 4),
          Text(
-          'Pitch: ${_devicePitch.toStringAsFixed(1)}° | Roll: ${_deviceRoll.toStringAsFixed(1)}°',
+          'Eğim: ${_devicePitch.toStringAsFixed(1)}° | Yatay: ${_deviceRoll.toStringAsFixed(1)}°',
           style: const TextStyle(fontSize: 12, color: Colors.grey),
          ),
         ],
-        ),
+       ),
       ),
-     
      const SizedBox(height: 10),
      Expanded(
       child: AspectRatio(
-       aspectRatio: 9 / 16, 
+       aspectRatio: 9 / 16,
        child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: Stack(
@@ -712,15 +693,13 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
          alignment: Alignment.center,
          children: [
           CameraPreview(_cameraController!),
-          
-           Image.asset(
+          Image.asset(
            'assets/overlays/${_steps[index]['tag']}.png',
            fit: BoxFit.cover,
            color: _isFaceAligned
             ? Colors.green.withOpacity(0.5)
             : Colors.white.withOpacity(0.4),
           ),
-
           if (_availableCameras.length > 1)
            Positioned(
             top: 8,
@@ -739,21 +718,19 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
         ),
        ),
       ),
-      ),
+     ),
      const SizedBox(height: 20),
      if (_isTakingPicture)
       const CircularProgressIndicator()
      else if (_isFaceAligned)
       const Text(
-       'Harika! Sabit durun, çekiliyor...',
+       'Harika! Sabit durun, çekiliyor...', // Bu UI metni, sesli değil
        style: TextStyle(fontSize: 18, color: Colors.green, fontWeight: FontWeight.bold),
        textAlign: TextAlign.center,
       )
      else
       Text(
-       needsAngleCheck 
-        ? 'Lütfen cihazı doğru açıda tutup kafanızı silueti doldurun.'
-        : 'Lütfen kafanızı siluetin içini dolduracak şekilde hizalayın.',
+       'Lütfen siluetin içini dolduracak şekilde hizalanın.',
        style: const TextStyle(fontSize: 18, color: Colors.orange, fontWeight: FontWeight.bold),
        textAlign: TextAlign.center,
       )
@@ -769,7 +746,7 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
     children: [
      Text(
       "Çekilen Fotoğraflar (${_takenPhotos.length} adet)",
-       style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)
+      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)
      ),
      const SizedBox(height: 10),
      Expanded(
@@ -783,7 +760,7 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
        itemBuilder: (context, index) {
         return ClipRRect(
          borderRadius: BorderRadius.circular(8),
-          child: Image.file(
+         child: Image.file(
           File(_takenPhotos[index].path),
           fit: BoxFit.cover,
          ),
@@ -792,14 +769,13 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
       ),
      ),
      const SizedBox(height: 10),
-     
      ElevatedButton.icon(
       style: ElevatedButton.styleFrom(
        backgroundColor: Colors.green,
        minimumSize: const Size(double.infinity, 50),
       ),
       onPressed: _submitConsultation,
-       icon: const Icon(Icons.upload),
+      icon: const Icon(Icons.upload),
       label: const Text('Tümünü Gönder ve Bitir'),
      ),
     ],
@@ -812,7 +788,7 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
   final sensorOrientation = camera.sensorOrientation;
   final rotation = InputImageRotationValue.fromRawValue(sensorOrientation) ?? InputImageRotation.rotation0deg;
 
-   InputImageMetadata metadata;
+  InputImageMetadata metadata;
   Uint8List bytes;
 
   if (Platform.isIOS) {
@@ -827,7 +803,7 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
   } else {
    final allBytes = WriteBuffer();
    for (final plane in image.planes) {
-     allBytes.putUint8List(plane.bytes);
+    allBytes.putUint8List(plane.bytes);
    }
    bytes = allBytes.done().buffer.asUint8List();
 
@@ -836,7 +812,7 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
     rotation: rotation,
     format: InputImageFormat.nv21,
     bytesPerRow: image.planes.first.bytesPerRow,
-    );
+   );
   }
 
   return InputImage.fromBytes(
@@ -845,13 +821,3 @@ class _PhotoWizardViewState extends State<_PhotoWizardView> {
   );
  }
 }
-
-// ========================================================================
-// ==================== SES GERİ BİLDİRİMİ YARDIMCISI ====================
-// ========================================================================
-// 
-// (BU KISIM ARTIK YENİ DOSYAYA TAŞINACAK)
-//
-// class AudioFeedbackHelper {
-//  ...
-// }

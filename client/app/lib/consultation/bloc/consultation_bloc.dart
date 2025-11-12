@@ -12,7 +12,6 @@ class ConsultationBloc extends Bloc<ConsultationEvent, ConsultationState> {
   ConsultationBloc({required ApiService apiService})
       : _apiService = apiService,
         super(ConsultationInitial()) {
-
     // ConsultationSubmitted event'i gelince _onSubmitted fonksiyonunu çalıştır
     on<ConsultationSubmitted>(_onSubmitted);
   }
@@ -51,12 +50,19 @@ class ConsultationBloc extends Bloc<ConsultationEvent, ConsultationState> {
 
       // 3. ADIM: Dosyaları DO Spaces'e (kovaya) yükle
       emit(ConsultationUploadInProgress(
-        message: "Fotoğraflar yükleniyor (1/${uploadTasks.length})...",
+        // YENİ: Başlangıç mesajı '0' olarak düzeltildi
+        message: "Fotoğraflar yükleniyor (0/${uploadTasks.length})...",
         progress: 0.5,
       ));
 
       List<Future> uploadFutures = []; // Paralel yükleme için
       List<Map<String, dynamic>> confirmedPhotoData = []; // 4. Adım için veri topla
+
+      // ==========================================
+      // YENİ: Yarış Durumunu (Race Condition) önlemek için sayaç
+      int completedUploads = 0;
+      final int totalUploads = uploadTasks.length;
+      // ==========================================
 
       for (int i = 0; i < uploadTasks.length; i++) {
         final task = uploadTasks[i];
@@ -68,19 +74,26 @@ class ConsultationBloc extends Bloc<ConsultationEvent, ConsultationState> {
           _apiService.uploadFileToSpaces(
             task['preSignedUrl'],
             file,
-            photoRequest['contentType'], // Düzeltilmiş ApiService'i kullan
+            photoRequest['contentType'],
           ).then((_) {
             // Yükleme başarılı olursa, 4. adım için veriyi topla
             confirmedPhotoData.add({
               'file_url': task['finalUrl'],
               'angle_tag': task['angle_tag'],
             });
+
+            // ==========================================
+            // YENİ: Sayaç kullanarak emit et
+            completedUploads++; // Sayacı artır
+            
             // UI'a ilerlemeyi bildir (dinamik)
             emit(ConsultationUploadInProgress(
-              message: "Fotoğraflar yükleniyor (${i + 1}/${uploadTasks.length})...",
-              progress: 0.5 + (0.4 * ((i + 1) / uploadTasks.length)), // 0.5'ten 0.9'a
+              // 'i+1' yerine SAYAÇTAKİ değeri kullan
+              message: "Fotoğraflar yükleniyor ($completedUploads/$totalUploads)...",
+              progress: 0.5 + (0.4 * (completedUploads / totalUploads)), // 0.5'ten 0.9'a
             ));
-          })
+            // ==========================================
+          }),
         );
       }
 
@@ -97,7 +110,6 @@ class ConsultationBloc extends Bloc<ConsultationEvent, ConsultationState> {
 
       // 5. ADIM: Bitti!
       emit(ConsultationSuccess());
-
     } catch (e) {
       // Hata yönetimi
       if (e is DioException) {

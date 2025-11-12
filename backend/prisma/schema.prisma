@@ -95,6 +95,12 @@ model ChatMessage {
   isRead         Boolean      @default(false)
 }
 
+enum TimelineEventType {
+  INFO    // Normal bilgi metni (örn: "Alkolü bırak")
+  VIDEO   // Eğitim videosu (örn: "3. Gün Yıkama")
+  UPLOAD  // Hastadan fotoğraf yüklemesini iste (örn: "10. Gün Kabuk Dökme")
+}
+
 model TimelineEvent {
   id          String   @id @default(uuid())
   patientId   String
@@ -103,4 +109,6 @@ model TimelineEvent {
   description String?  @db.Text
   eventDate   DateTime
   isCompleted Boolean  @default(false)
+  type         TimelineEventType @default(INFO) // Görev Tipi
+  videoUrl     String? // Eğer tip 'VIDEO' ise, Youtube linki
 }

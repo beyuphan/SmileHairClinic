@@ -97,24 +97,34 @@ class ApiService {
   // --- HAMLE 4: DOSYAYI DO SPACES'E YÜKLE ---
   // Bu, bizim API'ye DEĞİL, DO Spaces'in verdiği URL'ye istek atar.
   Future<void> uploadFileToSpaces(String preSignedUrl, File file, String contentType) async {
-    try {
-      final fileBytes = await file.readAsBytes();
+  try {
+    // 1. Önce dosyanın bayt uzunluğunu al (header için gerekli)
+    final int fileLength = await file.length();
+    
+    // 2. Dosyayı hafızaya okumadan, doğrudan bir okuma stream'i aç
+    final Stream<List<int>> fileStream = file.openRead();
 
-      await _dio.put(
-        preSignedUrl, // API'den değil, DO'dan gelen tam URL
-        data: Stream.fromIterable(fileBytes.map((e) => [e])), // Dosyanın ham baytları
-        options: Options(
-          headers: {
-            // NestJS'e değil, S3'e dosya tipi ve uzunluğunu bildirmeliyiz
-            'Content-Length': fileBytes.length,
-            'Content-Type': contentType, // Bunu dinamik hale getirebiliriz
-          },
-        ),
-      );
-    } catch (e) {
-      rethrow;
+    await _dio.put(
+      preSignedUrl, // API'den değil, DO'dan gelen tam URL
+      data: fileStream, // 3. Veri olarak stream'in kendisini yolla
+      options: Options(
+        headers: {
+          // 4. Content-Length'i mutlaka S3'e bildirmeliyiz
+          'Content-Length': fileLength, 
+          'Content-Type': contentType,
+          'Connection': 'keep-alive', // Bağlantıyı canlı tut
+        },
+      ),
+    );
+  } catch (e) {
+    // Hata durumunda daha detaylı log ver
+    print("uploadFileToSpaces Hatası: $e");
+    if (e is DioException) {
+      print("Dio Hatası Detayı (S3): ${e.response?.data}");
     }
+    rethrow;
   }
+}
 
   // --- HAMLE 5: YÜKLEMEYİ ONAYLA ---
   Future<void> confirmUpload(String consultationId, List<Map<String, dynamic>> uploadedPhotos) async {
@@ -151,6 +161,24 @@ Future<Map<String, dynamic>> getConsultationDetails(String consultationId) async
 
     // Gelen JSON objesini (Map) doğrudan BLoC'a döndür
     return response.data as Map<String, dynamic>; 
+  } catch (e) {
+    rethrow;
+  }
+}
+
+Future<List<dynamic>> getMyTimeline() async {
+  try {
+    final response = await _dio.get('/timeline');
+    return response.data as List<dynamic>; 
+  } catch (e) {
+    rethrow;
+  }
+}
+
+Future<List<dynamic>> getChatHistory(String consultationId) async {
+  try {
+    final response = await _dio.get('/chat/history/$consultationId');
+    return response.data as List<dynamic>; 
   } catch (e) {
     rethrow;
   }
