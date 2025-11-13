@@ -7,11 +7,12 @@ services:
     build: ./backend  
     ports:
       - "3000:3000" 
+      - "5555:5555"
     volumes:
       - ./backend:/usr/src/app 
     env_file:
       - ./backend/.env 
-    command: sh -c "npx prisma migrate dev && npm run start:dev"
+    command: sh -c "npx prisma migrate deploy && npm run start:dev"
     depends_on:
       db:
         condition: service_healthy

@@ -24,7 +24,9 @@ class ChatFailure extends ChatState {
 class ChatLoaded extends ChatState {
   // Veritabanından gelen eski mesajlar + Socket'ten gelen yeni mesajlar
   final List<dynamic> messages; 
-  const ChatLoaded(this.messages);
+  final String currentUserId;
+
+  const ChatLoaded(this.messages, this.currentUserId);
   @override
-  List<Object> get props => [messages];
+  List<Object> get props => [messages, currentUserId];
 }

@@ -90,7 +90,7 @@ class _ChatViewState extends State<_ChatView> {
                 }
                 if (state is ChatLoaded) {
                   // TODO: 'userId'yi BLoC'tan alıp 'isMe' kontrolü yap
-                  final String currentUserId = "BENİM_ID"; 
+                  final String currentUserId = state.currentUserId;
                   
                   return ListView.builder(
                     controller: _scrollController,
@@ -99,10 +99,13 @@ class _ChatViewState extends State<_ChatView> {
                     itemBuilder: (context, index) {
                       final message = state.messages[index];
                       // TODO: 'sender' objesini kontrol et
-                      final isMe = message['senderId'] == currentUserId; 
-                      
+
+                      final dynamic senderId = message['senderId'];
+                      final dynamic messageContent = message['messageContent'];
+
+                      final bool isMe = (senderId != null && senderId == currentUserId);                     
                       return _buildMessageBubble(
-                        message: message['messageContent'],
+                        message: messageContent?.toString() ?? "[İçerik yok]", // null ise fallback                        isMe: isMe,
                         isMe: isMe,
                         theme: theme,
                       );

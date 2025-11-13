@@ -5,6 +5,7 @@ import '/services/api_service.dart';
 import '/services/storage_service.dart';
 import '/chat/bloc/chat_event.dart';
 import '/chat/bloc/chat_state.dart';
+import 'package:jwt_decoder/jwt_decoder.dart';
 
 class ChatBloc extends Bloc<ChatEvent, ChatState> {
   final ApiService _apiService;
@@ -46,6 +47,31 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       if (token == null) {
         throw Exception('Giriş yapılmamış, token bulunamadı.');
       }
+
+      Map<String, dynamic> decodedToken = JwtDecoder.decode(token);
+      
+      print("--- TOKEN'IN İÇİ BU: ---");
+      print(decodedToken);
+      print("--------------------------");
+
+      
+      // Hata veren yeri GEÇİCİ olarak yoruma al, patlamasın
+      // final dynamic userIdFromToken = decodedToken['id'];
+      // if (userIdFromToken == null) {
+      //   throw Exception('Token ID (id) bulunamadı veya null.');
+      // }
+      
+      // --- GEÇİCİ ---
+      // Token'da 'id' yoksa patlamasın diye 'sub' veya 'userId' var mı diye bak
+      // BUNU SEN KONSOLA GÖRE DÜZELTECEKSİN
+      final dynamic userIdFromToken = decodedToken['id'] ?? decodedToken['sub'] ?? decodedToken['userId'];
+      if (userIdFromToken == null) {
+          throw Exception("Token'da 'id', 'sub' veya 'userId' HİÇBİRİ bulunamadı!");
+      }
+      final String currentUserId = userIdFromToken.toString(); // Artık güvendeyiz
+      // --- KONTROL BİTTİ ---
+      
+      print("Token'dan çözülen Kullanıcı ID: $currentUserId");
 
       // Backend'deki Gateway portu (3001)
       const socketUrl = 'http://192.168.1.25:3000';// <-- IP ADRESİNİ KONTROL ET!
@@ -89,7 +115,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
 
       // 3. ADIM: Başarılı
       // UI'a "Eski mesajlar bunlar, socket de bağlandı" de
-      emit(ChatLoaded(history.reversed.toList())); // Mesajları eskiden yeniye sırala
+      emit(ChatLoaded(history.reversed.toList(), currentUserId)); // Mesajları eskiden yeniye sırala
 
     } catch (e) {
       emit(ChatFailure(e.toString()));
@@ -125,7 +151,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
       updatedMessages.add(event.message);
       
       // UI'ı yeni listeyle güncelle
-      emit(ChatLoaded(updatedMessages));
+      emit(ChatLoaded(updatedMessages, currentState.currentUserId));
     }
   }
 

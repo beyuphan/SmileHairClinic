@@ -7,6 +7,7 @@ import { S3Module } from './s3/s3.module';
 import { ConsultationModule } from './consultation/consultation.module';
 import { TimelineModule } from './timeline/timeline.module';
 import { ChatModule } from './chat/chat.module';
+import { AppointmentModule } from './appointment/appointment.module'; 
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { ChatModule } from './chat/chat.module';
     ConsultationModule,
     TimelineModule,
     ChatModule,
+    AppointmentModule,
   ],
   controllers: [AppController],
   providers: [AppService],

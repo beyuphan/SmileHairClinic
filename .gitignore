@@ -43,3 +43,6 @@
 /backend/prisma/migrations/
 /backend/prisma/seed.db
 /backend/prisma/dev.db
+
+# Admin Panel
+/admin-panel/node_modules/

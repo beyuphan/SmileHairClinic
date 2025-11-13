@@ -7,26 +7,26 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ---- TABLOLARIMIZ BAŞLIYOR ----
+// ---- ENUMLAR ----
 
-// HATA BURADAYDI: Her bir değer ayrı satırda olmalı
 enum Role {
   patient
   doctor
   admin
 }
 
-// HATA BURADAYDI: Her bir değer ayrı satırda olmalı
+// --- GÜNCELLENDİ ---
+// Yeni bir durum ekledik: PENDING_APPROVAL
 enum ConsultationStatus {
-  pending_photos
-  pending_review
-  review_completed
-  treatment_scheduled
-  completed
-  cancelled
+  pending_photos      // Fotoğraf bekleniyor
+  pending_review      // Doktor/Admin incelemesi bekleniyor
+  review_completed    // İnceleme bitti (Artık randevu seçebilir)
+  PENDING_APPROVAL    // Kullanıcı slot seçti, admin onayı bekleniyor (YENİ)
+  treatment_scheduled // Admin onayladı, operasyon tarihi belli
+  completed           // Operasyon tamamlandı
+  cancelled           // İptal edildi
 }
 
-// HATA BURADAYDI: Her bir değer ayrı satırda olmalı
 enum AngleTag {
   front
   top
@@ -37,15 +37,26 @@ enum AngleTag {
   other
 }
 
+enum TimelineEventType {
+  INFO    // Normal bilgi metni (örn: "Alkolü bırak")
+  VIDEO   // Eğitim videosu (örn: "3. Gün Yıkama")
+  UPLOAD  // Hastadan fotoğraf yüklemesini iste (örn: "10. Gün Kabuk Dökme")
+}
+
+// ---- TABLOLARIMIZ BAŞLIYOR ----
+
 model User {
-  id            String    @id @default(uuid())
-  email         String    @unique
+  id            String   @id @default(uuid())
+  email         String   @unique
   passwordHash  String
-  role          Role      @default(patient)
-  createdAt     DateTime  @default(now())
+  role          Role     @default(patient)
+  createdAt     DateTime @default(now())
+  
+  fcmToken      String?  @unique // YENİ: Push notification için
+
   profile       PatientProfile?
   consultations Consultation[]
-  sentMessages  ChatMessage[]  @relation("Sender")
+  sentMessages  ChatMessage[]    @relation("Sender")
   timelineEvents TimelineEvent[]
 }
 
@@ -61,27 +72,36 @@ model PatientProfile {
   medicalHistoryNotes String?  @db.Text
 }
 
+// --- GÜNCELLENDİ ---
 model Consultation {
-  id              String             @id @default(uuid())
-  patientId       String
-  patient         User               @relation(fields: [patientId], references: [id])
-  doctorId        String?
-  status          ConsultationStatus @default(pending_photos)
-  doctorNotes     String?            @db.Text
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  id          String   @id @default(uuid())
+  patientId   String
+  patient     User     @relation(fields: [patientId], references: [id])
+  doctorId    String?
+  status      ConsultationStatus @default(pending_photos)
+  doctorNotes String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // YENİ: Admin onaylayınca, seçilen slottaki tarih buraya yazılacak.
+  // Timeline (sigarayı bırak vs.) bu tarihi baz alacak.
+  operationDate DateTime?
+
   photos          ConsultationPhoto[]
   messages        ChatMessage[]
   medicalFormData Json?
+
+  // YENİ: Bu danışmanlık için seçilen randevu slotu
+  selectedSlot   AppointmentSlot?
 }
 
 model ConsultationPhoto {
-  id             String     @id @default(uuid())
+  id             String       @id @default(uuid())
   consultationId String
   consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
-  fileUrl        String     @db.Text
+  fileUrl        String       @db.Text
   angleTag       AngleTag
-  uploadedAt     DateTime   @default(now())
+  uploadedAt     DateTime     @default(now())
 }
 
 model ChatMessage {
@@ -95,20 +115,27 @@ model ChatMessage {
   isRead         Boolean      @default(false)
 }
 
-enum TimelineEventType {
-  INFO    // Normal bilgi metni (örn: "Alkolü bırak")
-  VIDEO   // Eğitim videosu (örn: "3. Gün Yıkama")
-  UPLOAD  // Hastadan fotoğraf yüklemesini iste (örn: "10. Gün Kabuk Dökme")
-}
-
 model TimelineEvent {
   id          String   @id @default(uuid())
   patientId   String
   patient     User     @relation(fields: [patientId], references: [id])
   title       String
   description String?  @db.Text
-  eventDate   DateTime
+  eventDate   DateTime // Bu tarih 'operationDate'e göre hesaplanacak
   isCompleted Boolean  @default(false)
-  type         TimelineEventType @default(INFO) // Görev Tipi
-  videoUrl     String? // Eğer tip 'VIDEO' ise, Youtube linki
+  type        TimelineEventType @default(INFO)
+  videoUrl    String?
+}
+
+// --- YENİ MODEL ---
+// Adminin "boş randevu" olarak girdiği tarih/saat slotları
+model AppointmentSlot {
+  id       String   @id @default(uuid())
+  dateTime DateTime @unique // Randevu tarihi ve saati (Benzersiz olmalı)
+  isBooked Boolean  @default(false) // Seçildi mi?
+
+  // Bu slot hangi danışmanlığa rezerve edildi?
+  // (1'e 1 ilişki: Bir slot sadece bir danışmanlığa ait olabilir)
+  consultation   Consultation? @relation(fields: [consultationId], references: [id])
+  consultationId String?       @unique
 }
