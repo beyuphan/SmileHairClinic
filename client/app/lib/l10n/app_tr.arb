@@ -10,5 +10,13 @@
   "homeScreenTitle": "Ana Sayfa",
   "logoutButton": "Çıkış Yap",
   "startConsultationButton": "Yeni Konsültasyon Başlat",
-  "myConsultationsButton": "Geçmiş Konsültasyonlarım"
+  "myConsultationsButton": "Geçmiş Konsültasyonlarım",
+  "dashboardTitle": "Ana Sayfa",
+  "dashboardNewConsultationTitle": "Yeni Konsültasyon Başlat",
+  "dashboardNewConsultationSubtitle": "Fotoğraflarınızı yükleyin ve doktorlarımızdan değerlendirme alın.",
+  
+  "navbarHome": "Ana Sayfa",
+  "navbarConsultations": "Görüşmeler",
+  "navbarTimeline": "Süreç",
+  "navbarProfile": "Profil"
 }

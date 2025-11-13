@@ -3,54 +3,55 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '/my_consultations/bloc/my_consultations_bloc.dart';
 import '/my_consultations/bloc/my_consultations_event.dart';
 import '/my_consultations/bloc/my_consultations_state.dart';
-import '/services/api_service.dart';
+// import '/services/api_service.dart'; // Artık BlocProvider burada değil, gerek yok
 import '/consultation/detail/view/consultation_detail_screen.dart';
-import '/chat/view/chat_screen.dart'; // <-- YENİ SOHBET EKRANI (Birazdan yapacağız)
+import '/chat/view/chat_screen.dart'; 
+import 'package:intl/intl.dart'; // Tarih formatlama için
 
 class MyConsultationsScreen extends StatelessWidget {
   const MyConsultationsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    // Bu ekrana özel bir BLoC oluştur
-    return BlocProvider(
-      create: (context) => MyConsultationsBloc(
-        apiService: context.read<ApiService>(), // Depoyu al
-      )..add(FetchMyConsultations()), // Ekran açılır açılmaz veriyi çek
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Geçmiş Konsültasyonlarım'),
-        ),
-        body: BlocBuilder<MyConsultationsBloc, MyConsultationsState>(
-          builder: (context, state) {
-            // DURUM 1: YÜKLENİYOR
-            if (state is MyConsultationsLoading) {
-              return const Center(child: CircularProgressIndicator());
-            }
-
-            // DURUM 2: HATA
-            if (state is MyConsultationsFailure) {
-              return Center(
-                child: Text('Hata: ${state.error}'),
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Geçmiş Konsültasyonlarım'),
+      ),
+      // --- YENİ: AŞAĞI ÇEKİNCE YENİLE ---
+      body: RefreshIndicator(
+        onRefresh: () async {
+          // BLoC'a "Yeniden Çek" emri ver
+          context.read<MyConsultationsBloc>().add(FetchMyConsultations());
+          // BLoC'un 'MyConsultationsLoaded' state'ini yaymasını bekle
+          await context.read<MyConsultationsBloc>().stream.firstWhere(
+                (state) => state is MyConsultationsLoaded || state is MyConsultationsFailure
               );
-            }
+        },
+        child: BlocBuilder<MyConsultationsBloc, MyConsultationsState>(
+          builder: (context, state) {
+            // ... (Loading, Failure aynı) ...
 
-            // DURUM 3: BAŞARILI
             if (state is MyConsultationsLoaded) {
-              // Hiç kayıt yoksa
               if (state.consultations.isEmpty) {
-                return const Center(
-                  child: Text('Henüz bir konsültasyon kaydınız yok.'),
-                );
+                // ... (Empty kontrolü aynı) ...
               }
 
-              // Kayıt varsa, ListView ile listele
               return ListView.builder(
+                // ListView'ın her zaman kaydırılabilir olması lazım ki Refresh çalışsın
+                physics: const AlwaysScrollableScrollPhysics(), 
                 itemCount: state.consultations.length,
                 itemBuilder: (context, index) {
                   final consultation = state.consultations[index];
-
-                  // O thumbnail'i al (eğer varsa)
+                  final String status = consultation['status'];
+                  final String consultationId = consultation['id'];
+                  
+                  // Tarihi formatla
+                  String formattedDate = '';
+                  try {
+                     formattedDate = DateFormat.yMMMMd('tr_TR')
+                        .format(DateTime.parse(consultation['createdAt']).toLocal());
+                  } catch(e) { /* ignore */ }
+                  
                   String thumbnailUrl = '';
                   if (consultation['photos'] != null && (consultation['photos'] as List).isNotEmpty) {
                     thumbnailUrl = consultation['photos'][0]['fileUrl'];
@@ -59,25 +60,20 @@ class MyConsultationsScreen extends StatelessWidget {
                   return Card(
                     margin: const EdgeInsets.all(8.0),
                     child: ListTile(
-                      // Thumbnail'i yükle
                       leading: thumbnailUrl.isEmpty
                         ? const Icon(Icons.image_not_supported, size: 50)
                         : Image.network(thumbnailUrl, width: 50, height: 50, fit: BoxFit.cover),
-
-                      // Durum (pending_review, completed vb.)
-                      title: Text('Durum: ${consultation['status']}'),
-
-                      // Tarih (şimdilik ham formatta)
-                      subtitle: Text('Tarih: ${consultation['createdAt']}'),
-
+                      
+                      title: Text('Durum: $status'),
+                      subtitle: Text('Başvuru: $formattedDate'), // 'createdAt' yerine
+                      
                       trailing: IconButton(
                             icon: const Icon(Icons.chat_bubble_outline),
                             onPressed: () {
-                              // Tıklayınca 'ChatScreen'e git ve ID'yi yolla
                               Navigator.of(context).push(
                                 MaterialPageRoute(
                                   builder: (_) => ChatScreen(
-                                    consultationId: consultation['id'],
+                                    consultationId: consultationId,
                                   ),
                                 ),
                               );
@@ -87,7 +83,7 @@ class MyConsultationsScreen extends StatelessWidget {
                         Navigator.of(context).push(
                               MaterialPageRoute(
                                 builder: (_) => ConsultationDetailScreen(
-                                  consultationId: consultation['id'],
+                                  consultationId: consultationId,
                                 ),
                               ),
                             );
@@ -97,8 +93,6 @@ class MyConsultationsScreen extends StatelessWidget {
                 },
               );
             }
-
-            // DURUM 4: Başlangıç (Initial)
             return const Center(child: Text('Yükleniyor...'));
           },
         ),

@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, UnauthorizedException, ConflictException} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { S3Service } from '../s3/s3.service';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
@@ -130,6 +130,67 @@ export class ConsultationService {
   return securedConsultations;
 
   }
+
+  async findAllForAdmin() {
+  return this.prisma.consultation.findMany({
+    orderBy: {
+      updatedAt: 'desc', // En son konuşulan en üste gelsin
+    },
+    include: {
+      patient: { // Hastanın kim olduğunu bilelim
+        include: {
+          profile: true, // Profil bilgisi (varsa)
+        },
+      },
+    },
+  });
+}
+
+// --- YENİ EKLENDİ: Onay bekleyenleri getir ---
+  async findPendingApproval() {
+    return this.prisma.consultation.findMany({
+      where: {
+        status: 'PENDING_APPROVAL',
+      },
+      include: {
+        patient: { include: { profile: true } },
+        selectedSlot: true, // Hangi tarihi seçtiğini görmek için
+      },
+      orderBy: {
+        updatedAt: 'asc',
+      },
+    });
+  }
+
+  // --- YENİ EKLENDİ: Onaylama fonksiyonu ---
+  async approveConsultation(consultationId: string) {
+    // 1. Danışmanlığı ve rezerve ettiği slotu birlikte çek
+    const consultation = await this.prisma.consultation.findUnique({
+      where: { id: consultationId },
+      include: { selectedSlot: true },
+    });
+
+    if (!consultation) {
+      throw new NotFoundException('Danışmanlık bulunamadı');
+    }
+    if (consultation.status !== 'PENDING_APPROVAL') {
+      throw new ConflictException('Bu danışmanlık onay bekliyor durumunda değil.');
+    }
+    if (!consultation.selectedSlot) {
+      throw new ConflictException('Bu danışmanlığın seçilmiş bir randevu slotu yok.');
+    }
+
+    // 2. Slottaki 'dateTime'ı, ana danışmanlığın 'operationDate'ine kopyala
+    // (Timeline'ın başlaması için)
+    return this.prisma.consultation.update({
+      where: { id: consultationId },
+      data: {
+        operationDate: consultation.selectedSlot.dateTime,
+        status: 'treatment_scheduled', // Durumu 'Randevu Planlandı' yap
+      },
+    });
+  }
+
   // YENİ FONKSİYON: Tek bir kaydın tüm detaylarını getir
 async findOneForPatient(consultationId: string, patientId: string) {
   // 1. Önce bu kullanıcının bu kayda erişim hakkı var mı kontrol et

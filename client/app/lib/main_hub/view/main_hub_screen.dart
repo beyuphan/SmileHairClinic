@@ -1,12 +1,17 @@
+// client/app/lib/main_hub/view/main_hub_screen.dart
 import 'package:flutter/material.dart';
-import '/l10n/app_localizations.dart'; // Dil
-
-// O 4 adet sekme ekranını import et
+import 'package:flutter_bloc/flutter_bloc.dart';
 import '/dashboard/view/dashboard_screen.dart';
 import '/my_consultations/view/my_consultations_screen.dart';
-import '/chat/view/chat_screen.dart';
+import '/timeline/view/timeline_screen.dart';
 import '/profile/view/profile_screen.dart';
-import '/timeline/view/timeline_screen.dart'; 
+import '/l10n/app_localizations.dart';
+
+
+// --- YENİ İMPORTLAR ---
+import '/my_consultations/bloc/my_consultations_bloc.dart';
+import '/my_consultations/bloc/my_consultations_event.dart';
+import '/services/api_service.dart';
 
 class MainHubScreen extends StatefulWidget {
   const MainHubScreen({super.key});
@@ -16,13 +21,14 @@ class MainHubScreen extends StatefulWidget {
 }
 
 class _MainHubScreenState extends State<MainHubScreen> {
-  int _selectedIndex = 0; // Hangi sekmenin seçili olduğunu tutar
+  int _selectedIndex = 0;
 
-  // O 4 adet ekranı bir listeye koy
+  // Ana Sayfa, Geçmiş, Takvim, Profil
   static const List<Widget> _widgetOptions = <Widget>[
-    DashboardScreen(),        // Sekme 0
-    TimelineScreen(),  // Sekme 1 ("Yolculuğum")
-    ProfileScreen(),          // Sekme 2
+    DashboardScreen(),
+    MyConsultationsScreen(),
+    TimelineScreen(),
+    ProfileScreen(),
   ];
 
   void _onItemTapped(int index) {
@@ -33,46 +39,51 @@ class _MainHubScreenState extends State<MainHubScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final loc = AppLocalizations.of(context)!;
-    final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context)!;
 
-    return Scaffold(
-      // Hangi ekran seçiliyse onu göster
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: _widgetOptions,
-      ),
+    // --- YENİ MANTIK BURADA ---
+    // BLoC'u 'MyConsultationsScreen'den alıp buraya,
+    // yani tüm sekmelerin üstüne 'BlocProvider' olarak koyuyoruz.
+    // Böylece hem Dashboard hem de MyConsultations aynı BLoC'u dinleyebilir.
+    return BlocProvider(
+      create: (context) => MyConsultationsBloc(
+        apiService: context.read<ApiService>(),
+      )..add(FetchMyConsultations()), // Hub açılır açılmaz konsültasyonları çek
+      child: Scaffold(
+        body: Center(
+          child: _widgetOptions.elementAt(_selectedIndex),
+        ),
+        bottomNavigationBar: BottomNavigationBar(
+          items: <BottomNavigationBarItem>[
+            BottomNavigationBarItem(
+              icon: const Icon(Icons.home_outlined),
+              activeIcon: const Icon(Icons.home),
+              label: l10n.navbarHome,
+            ),
+            BottomNavigationBarItem(
+              icon: const Icon(Icons.folder_copy_outlined),
+              activeIcon: const Icon(Icons.folder_copy),
+              label: l10n.navbarConsultations,
 
-      // Alt Navigasyon Çubuğu (Premium & Tutkulu)
-      bottomNavigationBar: BottomNavigationBar(
-        // Tipi: 'fixed' (sabit) olsun ki 4'ü de görünsün
-        type: BottomNavigationBarType.fixed, 
-
-        // Renkler (Temadan)
-        backgroundColor: theme.colorScheme.surface, // Açıkta Beyaz, Koyuda Gri
-        selectedItemColor: theme.colorScheme.secondary, // Seçili olan: Koral (Tutku)
-        unselectedItemColor: Colors.grey, // Seçili olmayan: Gri
-
-        // Sekmeler
-        items: const <BottomNavigationBarItem>[
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home_outlined),
-            activeIcon: Icon(Icons.home),
-            label: 'Ana Sayfa', // TODO: Dile ekle
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.timeline_outlined),
-            activeIcon: Icon(Icons.timeline),
-            label: 'Yolculuğum', // TODO: Dile ekle
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person_outline),
-            activeIcon: Icon(Icons.person),
-            label: 'Profil', // TODO: Dile ekle
-          ),
-        ],
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
+            ),
+            BottomNavigationBarItem(
+              icon: const Icon(Icons.calendar_month_outlined),
+              activeIcon: const Icon(Icons.calendar_month),
+              label: l10n.navbarTimeline,
+            ),
+            BottomNavigationBarItem(
+              icon: const Icon(Icons.person_outline),
+              activeIcon: const Icon(Icons.person),
+              label: l10n.navbarProfile,
+            ),
+          ],
+          currentIndex: _selectedIndex,
+          onTap: _onItemTapped,
+          // Tema'dan (app_theme.dart) renkleri al
+          type: BottomNavigationBarType.fixed,
+          selectedItemColor: Theme.of(context).colorScheme.primary,
+          unselectedItemColor: Colors.grey,
+        ),
       ),
     );
   }

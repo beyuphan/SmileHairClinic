@@ -9,6 +9,13 @@ function AdminLayout({ children, onLogout, onNavigate, activePage }) {
         <h1>Admin Paneli</h1>
         <ul>
           <li 
+            className={activePage === 'approvals' ? 'active' : ''}
+            onClick={() => onNavigate('approvals')}
+          >
+            Randevu Onay
+          </li>
+          
+          <li 
             className={activePage === 'slots' ? 'active' : ''}
             onClick={() => onNavigate('slots')}
           >

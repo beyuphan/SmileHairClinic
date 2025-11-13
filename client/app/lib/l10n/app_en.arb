@@ -10,5 +10,13 @@
   "homeScreenTitle": "Home",
   "logoutButton": "Logout",
   "startConsultationButton": "Start New Consultation",
-  "myConsultationsButton": "My Consultations"
+  "myConsultationsButton": "My Consultations",
+  "dashboardTitle": "Dashboard",
+  "dashboardNewConsultationTitle": "Start a New Consultation",
+  "dashboardNewConsultationSubtitle": "Upload your photos and get a review from our doctors.",
+  
+  "navbarHome": "Home",
+  "navbarConsultations": "Consultations",
+  "navbarTimeline": "Timeline",
+  "navbarProfile": "Profile"
 }

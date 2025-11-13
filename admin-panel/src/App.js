@@ -5,6 +5,7 @@ import Login from './Login';
 import SlotManager from './SlotManager'; // Düzeltilmiş v3'ü import edecek
 import AdminLayout from './AdminLayout';
 import Messages from './Messages';
+import ApprovalScreen from './ApprovalScreen'; 
 import { setAuthToken } from './apiService';
 
 function App() {
@@ -45,6 +46,8 @@ function App() {
   // Hangi sayfayı göstereceğimizi seç
   const renderPage = () => {
     switch(page) {
+      case 'approvals': // <-- YENİ CASE
+        return <ApprovalScreen />;
       case 'slots':
         return <SlotManager />; // Düzeltilmiş (v3) SlotManager'ı göster
       case 'messages':

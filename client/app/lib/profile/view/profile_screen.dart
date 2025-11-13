@@ -27,19 +27,7 @@ class ProfileScreen extends StatelessWidget {
               // TODO: Buraya 'authBloc.state.user.email' gibi bir şey gelecek
               const Text("test@kullanici.com"), 
               const SizedBox(height: 40),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: theme.colorScheme.primary, // Ana Renk (Teal)
-                ),
-                onPressed: () {
-                   Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const MyConsultationsScreen(),
-                    ),
-                  );
-                },
-                child: Text(loc.myConsultationsButton),
-              ),
+             
               const SizedBox(height: 10),
 
               // Çıkış Yap butonu buraya taşındı

@@ -3,9 +3,10 @@ import { ChatGateway } from './chat.gateway';
 import { AuthModule } from '../auth/auth.module'; // <-- GÜVENLİK İÇİN
 import { PrismaModule } from '../prisma/prisma.module'; // <-- VERİTABANI İÇİN
 import { ChatController } from './chat.controller'; // <-- YENİ İMPORT
+import { UsersModule } from '../users/users.module'; // <-- DOĞRU İMPORT
 
 @Module({
-  imports: [AuthModule, PrismaModule], // <-- BU İKİSİNİ EKLE
+  imports: [AuthModule, PrismaModule, UsersModule], // <-- BU İKİSİNİ EKLE
   providers: [ChatGateway], // Gateway'i (kapıyı) tanıt
   controllers: [ChatController], // <-- YENİ SATIR
 })

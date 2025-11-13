@@ -36,17 +36,31 @@ export class AppointmentService {
 
   // --- Kullanıcı ---
   async bookSlot(user: User, dto: BookSlotDto) {
+    console.log('Randevu İsteği:', { 
+      user_id: user.id, 
+      user_role: user.role, 
+      consultation_id: dto.consultationId 
+    });
+
     // 1. Bu danışmanlık bu kullanıcıya mı ait? Güvenlik kontrolü
     const consultation = await this.prisma.consultation.findUnique({
       where: { id: dto.consultationId },
     });
 
-    if (!consultation) {
+   if (!consultation) {
       throw new NotFoundException('Danışmanlık bulunamadı');
     }
-    if (consultation.patientId !== user.id) {
+
+    // KONTROLÜ LOGLA BİRLİKTE YAP
+    // user.id yoksa user.userId'ye baksın
+    const currentUserId = user.id;
+
+    if (consultation.patientId !== currentUserId && user.role !== 'admin') {
+      console.log(`Yetki Hatası: ConsPatient=${consultation.patientId}, User=${currentUserId}`);
       throw new UnauthorizedException('Bu danışmanlık size ait değil');
     }
+    console.log(`Randevu İsteği: UserID=${user.id}, Role=${user.role}, ConsPatientID=${consultation.patientId}`);
+
 
     // 2. İşlemi 'Transaction' içinde yap
     // (Biri slotu kaparsa, diğeri hata alsın)

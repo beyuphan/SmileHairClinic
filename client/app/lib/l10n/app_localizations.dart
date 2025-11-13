@@ -169,6 +169,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'My Consultations'**
   String get myConsultationsButton;
+
+  /// No description provided for @dashboardTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Dashboard'**
+  String get dashboardTitle;
+
+  /// No description provided for @dashboardNewConsultationTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Start a New Consultation'**
+  String get dashboardNewConsultationTitle;
+
+  /// No description provided for @dashboardNewConsultationSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Upload your photos and get a review from our doctors.'**
+  String get dashboardNewConsultationSubtitle;
+
+  /// No description provided for @navbarHome.
+  ///
+  /// In en, this message translates to:
+  /// **'Home'**
+  String get navbarHome;
+
+  /// No description provided for @navbarConsultations.
+  ///
+  /// In en, this message translates to:
+  /// **'Consultations'**
+  String get navbarConsultations;
+
+  /// No description provided for @navbarTimeline.
+  ///
+  /// In en, this message translates to:
+  /// **'Timeline'**
+  String get navbarTimeline;
+
+  /// No description provided for @navbarProfile.
+  ///
+  /// In en, this message translates to:
+  /// **'Profile'**
+  String get navbarProfile;
 }
 
 class _AppLocalizationsDelegate

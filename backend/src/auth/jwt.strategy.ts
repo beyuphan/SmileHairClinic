@@ -16,6 +16,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   // Token geçerliyse, bu fonksiyon çalışır ve 'req.user' objesini oluşturur
   async validate(payload: any) {
-    return { userId: payload.sub, email: payload.email, role: payload.role };
+    return { id: payload.sub, userId: payload.sub, email: payload.email, role: payload.role };
   }
 }

@@ -47,4 +47,26 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get myConsultationsButton => 'Geçmiş Konsültasyonlarım';
+
+  @override
+  String get dashboardTitle => 'Ana Sayfa';
+
+  @override
+  String get dashboardNewConsultationTitle => 'Yeni Konsültasyon Başlat';
+
+  @override
+  String get dashboardNewConsultationSubtitle =>
+      'Fotoğraflarınızı yükleyin ve doktorlarımızdan değerlendirme alın.';
+
+  @override
+  String get navbarHome => 'Ana Sayfa';
+
+  @override
+  String get navbarConsultations => 'Görüşmeler';
+
+  @override
+  String get navbarTimeline => 'Süreç';
+
+  @override
+  String get navbarProfile => 'Profil';
 }

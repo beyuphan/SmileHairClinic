@@ -47,4 +47,26 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get myConsultationsButton => 'My Consultations';
+
+  @override
+  String get dashboardTitle => 'Dashboard';
+
+  @override
+  String get dashboardNewConsultationTitle => 'Start a New Consultation';
+
+  @override
+  String get dashboardNewConsultationSubtitle =>
+      'Upload your photos and get a review from our doctors.';
+
+  @override
+  String get navbarHome => 'Home';
+
+  @override
+  String get navbarConsultations => 'Consultations';
+
+  @override
+  String get navbarTimeline => 'Timeline';
+
+  @override
+  String get navbarProfile => 'Profile';
 }

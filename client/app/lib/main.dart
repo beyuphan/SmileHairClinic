@@ -19,16 +19,22 @@ import '/main_hub/view/main_hub_screen.dart';
 import '/splash/view/splash_screen.dart';
 
 void main() {
-  // Servisleri oluştur (Bu zaten tamamdı)
-  final ApiService apiService = ApiService();
-  final SecureStorageService storageService = SecureStorageService();
+
 
   runApp(
     // Servisleri BLoC'lara tanıt
     MultiRepositoryProvider(
       providers: [
-        RepositoryProvider.value(value: apiService),
-        RepositoryProvider.value(value: storageService),
+        // 1. StorageService'i yarat
+        RepositoryProvider(
+          create: (context) => SecureStorageService(),
+        ),
+        // 2. ApiService'i yarat ve az önce yarattığın storage'ı ona yolla
+        RepositoryProvider(
+          create: (context) => ApiService(
+            storageService: context.read<SecureStorageService>(),
+          ),
+        ),
       ],
       // AuthBloc'u uygulamanın en üstüne yerleştir
       child: BlocProvider(
