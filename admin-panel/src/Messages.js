@@ -3,15 +3,29 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import apiService, { setAuthToken } from './apiService'; // setAuthToken'a ihtiyacımız var
 import { io } from 'socket.io-client';
 
+
+const getAdminUserId = () => {
+  const token = localStorage.getItem('adminToken');
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.sub; // 'sub' (subject) genelde 'id'dir
+  } catch (e) {
+    console.error("Token decode edilemedi:", e);
+    return null;
+  }
+};
+
 // ------------------------------------------------------------------
 // BİLEŞEN 1: Gerçek Zamanlı Sohbet Ekranı
 // ------------------------------------------------------------------
-function ChatView({ consultation, adminUserId }) {
+function ChatView({ patient, adminUserId }) {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [socket, setSocket] = useState(null);
   const messagesEndRef = useRef(null); // Sohbetin en altına kaymak için
 
+  console.log("ChatView YÜKLENDİ. Gelen 'consultation' prop'u:", patient);  
   // En alta kaydırma fonksiyonu
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -19,15 +33,23 @@ function ChatView({ consultation, adminUserId }) {
 
   // 1. ADIM: Danışmanlık değiştiğinde, eski mesajları çek ve socket'e bağlan
   useEffect(() => {
-    if (!consultation) return;
+    if (!patient) {
+      setMessages([]); // Hasta seçilmediyse mesajları temizle
+      return;
+    }
     
     let newSocket; // Socket'i dışarıda tanımla ki cleanup erişebilsin
     
     const setupChat = async () => {
       try {
         // --- a) ÖNCE eski mesajları çek (ve BEKLE) ---
+        console.log(`API isteği atılıyor: /chat/history/${patient.id}`);
+
         // (URL'i '/chat/history/' olarak düzelttiğini varsayıyorum)
-        const response = await apiService.get(`/chat/history/${consultation.id}`);
+        const response = await apiService.get(`/chat/history/${patient.id}`);
+
+        console.log("API'dan dönen HAM VERİ:", response.data);
+
         setMessages(response.data);
 
         // --- b) Eski mesajlar bittikten SONRA socket'i bağla ---
@@ -40,8 +62,8 @@ function ChatView({ consultation, adminUserId }) {
         });
 
         newSocket.on('connect', () => {
-          console.log('Socket.IO bağlandı. Odaya giriliyor:', consultation.id);
-          newSocket.emit('joinRoom', { consultationId: consultation.id });
+          console.log('Socket.IO bağlandı. Odaya giriliyor:', patient.id);
+          newSocket.emit('joinRoom', { targetUserId: patient.id });
         });
 
         // 'newMessage' event'ini dinle
@@ -72,7 +94,7 @@ function ChatView({ consultation, adminUserId }) {
       }
     };
     
-  }, [consultation]);
+  }, [patient]);
 
   // 2. ADIM: Mesajlar yüklendiğinde en alta kaydır
   useEffect(() => {
@@ -86,15 +108,15 @@ function ChatView({ consultation, adminUserId }) {
 
     // ChatGateway'deki 'sendMessage' event'ini tetikle
     socket.emit('sendMessage', {
-      consultationId: consultation.id,
-      messageContent: newMessage,
+      targetUserId: patient.id,
+      content: newMessage,
     });
     
     setNewMessage('');
   };
 
-  if (!consultation) {
-    return <div className="chat-view-placeholder">Konuşma seçilmedi.</div>;
+  if (!patient) {
+    return <div className="chat-view-placeholder">Hasta seçilmedi.</div>;
   }
 
   return (
@@ -132,92 +154,89 @@ function ChatView({ consultation, adminUserId }) {
 // BİLEŞEN 2: Ana Mesajlar Sayfası (Listeyi Çeken)
 // ------------------------------------------------------------------
 function Messages() {
-  const [consultations, setConsultations] = useState([]);
-  const [selectedConsultation, setSelectedConsultation] = useState(null);
+  // --- Değişiklik 1: State isimlerini güncelleyelim ---
+  const [patientList, setPatientList] = useState([]); // consultations -> patientList
+  const [selectedPatient, setSelectedPatient] = useState(null); // selectedConsultation -> selectedPatient
   const [loading, setLoading] = useState(true);
   
-  // Admin'in kendi ID'sini al (ChatView'de 'isMe' kontrolü için)
-  const getAdminUserId = () => {
-    const token = localStorage.getItem('adminToken');
-    if (!token) return null;
-    try {
-      // Token'ı (JWT) decode et (basit JS yolu)
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      return payload.sub; // 'sub' (subject) genelde 'id'dir
-    } catch (e) {
-      console.error("Token decode edilemedi:", e);
-      return null;
-    }
-  };
+  // ... (getAdminUserId fonksiyonu aynı kalabilir) ...
   const adminUserId = getAdminUserId();
 
-  // Sayfa ilk yüklendiğinde, admin için tüm odaları çek
+  // --- Değişiklik 2: Yeni endpoint'i çağıralım ---
   useEffect(() => {
-    const fetchConsultations = async () => {
+    const fetchPatientList = async () => {
       try {
         setLoading(true);
-        // 1. Adım'da yaptığımız YENİ ENDPOINT'i çağır
-        const response = await apiService.get('/consultations/admin/all');
-        setConsultations(response.data);
+        console.log("API isteği atılıyor: /chat/patient-list");
+
+        // /consultations/admin/all YERİNE yeni endpoint'i çağır
+        const response = await apiService.get('/chat/patient-list'); 
+
+        console.log("API'DAN HASTA LİSTESİ GELDİ (HAM VERİ):", response.data);
+        setPatientList(response.data);
       } catch (error) {
-        console.error("Danışmanlıklar çekilemedi:", error);
+        
+        console.error("Hasta listesi çekilemedi:", error);
       } finally {
         setLoading(false);
       }
     };
     
-    fetchConsultations();
+    fetchPatientList();
   }, []);
 
   return (
     <div className="content-card messages-layout">
-      {/* Sol Taraf: Hasta Listesi */}
-      <div className="consultation-list">
-        <h3>Tüm Görüşmeler</h3>
+      {/* Sol Taraf: Hasta Listesi (DÜZELTİLMİŞ) */}
+      <div className="consultation-list"> {/* CSS class'ı aynı kalabilir */}
+        <h3>Tüm Hastalar</h3>
         {loading ? (
           <p>Yükleniyor...</p>
         ) : (
           <ul>
-            {consultations.map(con => (
-              <li 
-                key={con.id}
-                data-status={con.status.toLowerCase()}
-                className={selectedConsultation?.id === con.id ? 'active' : ''}
-                onClick={() => setSelectedConsultation(con)}
-              >
-                {/* Hastanın adını veya email'ini yaz */}
-                <span className="patient-name">
-                  {con.patient.profile ? 
-                    `${con.patient.profile.firstName} ${con.patient.profile.lastName}` : 
-                    con.patient.email}
-                </span>
+            {/* --- Değişiklik 3: patientList üzerinden map yap --- */}
+            {patientList.map(patient => {
+              // Backend'den çektiğimiz son başvuruyu al
+              const latestConsultation = patient.consultations?.[0];
 
-                {/* YENİ: Başvuru tarihi ve durumu */}
-                <div className="consultation-details">
-                  <span className="consultation-date">
-                    {new Date(con.createdAt).toLocaleDateString('tr-TR')}
+              return (
+                <li 
+                  key={patient.id} // Artık patient.id
+                  // Durumu son başvurudan al VEYA 'Yeni Hasta' de
+                  data-status={latestConsultation?.status.toLowerCase() || 'new'}
+                  className={selectedPatient?.id === patient.id ? 'active' : ''}
+                  onClick={() => setSelectedPatient(patient)} // Tıklayınca patient'ı set et
+                >
+                  {/* --- Değişiklik 4: Veriyi direkt patient'tan al --- */}
+                  <span className="patient-name">
+                    {patient.profile ? 
+                      `${patient.profile.firstName} ${patient.profile.lastName}` : 
+                      patient.email}
                   </span>
-                  <span className="consultation-status">
-                    {con.status.replace('_', ' ')} {/* Alttan tireyi boşluğa çevir */}
-                  </span>
-                </div>
 
-                <span className="consultation-status">
-                  {con.status}
-                </span>
-              </li>
-            ))}
+                  <div className="consultation-details">
+                    <span className="consultation-date">
+                      {/* Varsa başvuru tarihi, yoksa kayıt tarihi */}
+                      {new Date(latestConsultation?.createdAt || patient.createdAt).toLocaleDateString('tr-TR')}
+                    </span>
+                    <span className="consultation-status">
+                      {/* Varsa durum, yoksa 'Yeni Hasta' vb. */}
+                      {latestConsultation ? latestConsultation.status.replace('_', ' ') : 'Yeni Hasta'}
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
       
-      {/* Sağ Taraf: Sohbet Ekranı */}
+      {/* --- Değişiklik 5: ChatView'e 'patient' prop'u gönder --- */}
       <ChatView 
-        consultation={selectedConsultation} 
+        patient={selectedPatient} // consultation -> patient
         adminUserId={adminUserId}
       />
     </div>
   );
 }
-
 export default Messages;

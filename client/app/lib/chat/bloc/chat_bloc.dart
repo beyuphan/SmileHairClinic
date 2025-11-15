@@ -54,7 +54,7 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
 
       // 3. ADIM: WebSocket'e Bağlan
       // DİKKAT: IP ADRESİNİ KONTROL ET
-      const socketUrl = 'http://192.168.1.30:3000'; // <-- KENDİ IP'N
+      const socketUrl = 'http://192.168.1.21:3000'; // <-- KENDİ IP'N
 
       _socket = IO.io(socketUrl, <String, dynamic>{
         'transports': ['websocket'],

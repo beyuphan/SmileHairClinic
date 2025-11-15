@@ -7,7 +7,7 @@ class ApiService {
   final Dio _dio;
   final SecureStorageService _storageService; // <-- DEĞİŞİKLİK 1
 
-  static const String _baseUrl = "http://192.168.1.25:3000"; // <-- BURAYI KENDİ IP'N İLE GÜNCELLE
+  static const String _baseUrl = "http://192.168.1.21:3000"; // <-- BURAYI KENDİ IP'N İLE GÜNCELLE
 
   // --- DEĞİŞİKLİK 2: Artık 'SecureStorageService'i parametre olarak alıyor ---
   ApiService({required SecureStorageService storageService})
