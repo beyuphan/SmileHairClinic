@@ -67,18 +67,7 @@ class MyConsultationsScreen extends StatelessWidget {
                       title: Text('Durum: $status'),
                       subtitle: Text('Başvuru: $formattedDate'), // 'createdAt' yerine
                       
-                      trailing: IconButton(
-                            icon: const Icon(Icons.chat_bubble_outline),
-                            onPressed: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => ChatScreen(
-                                    consultationId: consultationId,
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
+                     
                       onTap: () {
                         Navigator.of(context).push(
                               MaterialPageRoute(

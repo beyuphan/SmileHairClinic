@@ -2,18 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '/services/api_service.dart';
 import '/services/storage_service.dart';
-import 'package:socket_io_client/socket_io_client.dart' as IO;
-import '/l10n/app_localizations.dart';
-
 import '/chat/bloc/chat_bloc.dart';
 import '/chat/bloc/chat_event.dart';
 import '/chat/bloc/chat_state.dart';
 
-// 'MyConsultationsScreen'den bu ekrana ID ile geliyoruz
+// ARTIK PARAMETRE ALMIYOR
 class ChatScreen extends StatelessWidget {
-  final String consultationId;
-
-  const ChatScreen({super.key, required this.consultationId});
+  const ChatScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -21,7 +16,7 @@ class ChatScreen extends StatelessWidget {
       create: (context) => ChatBloc(
         apiService: context.read<ApiService>(),
         storageService: context.read<SecureStorageService>(),
-        consultationId: consultationId,
+        // consultationId ARTIK YOK
       )..add(ChatStarted()), // BLoC'u başlat
       child: const _ChatView(),
     );
@@ -37,21 +32,32 @@ class _ChatView extends StatefulWidget {
 
 class _ChatViewState extends State<_ChatView> {
   final _textController = TextEditingController();
-  final _scrollController = ScrollController(); // Listenin en altına kaymak için
+  final _scrollController = ScrollController(); 
 
   void _sendMessage() {
-    if (_textController.text.isEmpty) return;
-    
-    // BLoC'a "Mesaj Gönder" event'i yolla
+    if (_textController.text.trim().isEmpty) return;
     context.read<ChatBloc>().add(ChatMessageSent(_textController.text));
-    _textController.clear(); // Metin kutusunu temizle
+    _textController.clear();
+    // Socket'ten cevap gelince listener kaydıracak
+  }
+
+  // Yeni mesaj gelince en alta kaydır
+  void _scrollToBottom() {
+    if (_scrollController.hasClients) {
+      Future.delayed(const Duration(milliseconds: 100), () {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      });
+    }
   }
 
   @override
   void dispose() {
     _textController.dispose();
     _scrollController.dispose();
-    // BLoC, 'dispose' olduğunda WebSocket bağlantısını otomatik kapatmalı
     super.dispose();
   }
 
@@ -61,7 +67,7 @@ class _ChatViewState extends State<_ChatView> {
     
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Doktor Görüşmesi"), // TODO: Dile ekle
+        title: const Text("Destek Hattı"), // Artık genel bir başlık
       ),
       body: Column(
         children: [
@@ -69,16 +75,9 @@ class _ChatViewState extends State<_ChatView> {
           Expanded(
             child: BlocConsumer<ChatBloc, ChatState>(
               listener: (context, state) {
-                // Yeni mesaj geldiğinde veya yüklendiğinde en alta kaydır
+                // Her 'ChatLoaded' durumunda (hem geçmiş hem yeni mesaj)
                 if (state is ChatLoaded) {
-                  // Kısa bir gecikme (render bitince)
-                  Future.delayed(const Duration(milliseconds: 100), () {
-                    _scrollController.animateTo(
-                      _scrollController.position.maxScrollExtent,
-                      duration: const Duration(milliseconds: 300),
-                      curve: Curves.easeOut,
-                    );
-                  });
+                  _scrollToBottom();
                 }
               },
               builder: (context, state) {
@@ -89,8 +88,7 @@ class _ChatViewState extends State<_ChatView> {
                   return Center(child: Text("Hata: ${state.error}"));
                 }
                 if (state is ChatLoaded) {
-                  // TODO: 'userId'yi BLoC'tan alıp 'isMe' kontrolü yap
-                  final String currentUserId = state.currentUserId;
+                  final String currentUserId = state.currentUserId; 
                   
                   return ListView.builder(
                     controller: _scrollController,
@@ -98,14 +96,11 @@ class _ChatViewState extends State<_ChatView> {
                     itemCount: state.messages.length,
                     itemBuilder: (context, index) {
                       final message = state.messages[index];
-                      // TODO: 'sender' objesini kontrol et
-
-                      final dynamic senderId = message['senderId'];
-                      final dynamic messageContent = message['messageContent'];
-
-                      final bool isMe = (senderId != null && senderId == currentUserId);                     
+                      // Backend'den 'senderId' geliyor
+                      final bool isMe = message['senderId'] == currentUserId; 
+                      
                       return _buildMessageBubble(
-                        message: messageContent?.toString() ?? "[İçerik yok]", // null ise fallback                        isMe: isMe,
+                        message: message['messageContent'],
                         isMe: isMe,
                         theme: theme,
                       );
@@ -123,7 +118,6 @@ class _ChatViewState extends State<_ChatView> {
       ),
     );
   }
-
   // Sohbet balonu çizen yardımcı Widget
   Widget _buildMessageBubble({required String message, required bool isMe, required ThemeData theme}) {
     return Row(

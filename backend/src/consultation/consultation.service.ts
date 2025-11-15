@@ -1,4 +1,5 @@
-import { Injectable, Logger, NotFoundException, UnauthorizedException, ConflictException} from '@nestjs/common';
+// backend/src/consultation/consultation.service.ts
+import { Injectable, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { S3Service } from '../s3/s3.service';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
@@ -16,7 +17,7 @@ export class ConsultationService {
     private s3: S3Service,
   ) {}
 
-  // Akış 1: Konsültasyon kaydını oluştur
+  // Akış 1: Konsültasyon (Dosya Paketi) oluştur
   async createConsultation(
     dto: CreateConsultationDto,
     patientId: string,
@@ -25,7 +26,7 @@ export class ConsultationService {
     return this.prisma.consultation.create({
       data: {
         patientId: patientId,
-        status: 'pending_photos',
+        status: 'pending_photos', // Yeni schema'daki enum
         medicalFormData: dto.medicalFormData || {},
       },
     });
@@ -34,17 +35,17 @@ export class ConsultationService {
   // Akış 2: Pre-signed URL'leri üret
   async generateUploadUrls(dto: RequestUploadUrlsDto, userId: string) {
     this.logger.log(`Generating ${dto.files.length} URLs for consultation ${dto.consultationId}`);
+    // Hala sahibini doğruluyoruz (iyi bir şey)
     await this.verifyConsultationOwner(dto.consultationId, userId);
 
-    const uploadTasks: any[] = []; // Düzeltme burada
-
+    const uploadTasks: any[] = [];
     for (const file of dto.files) {
       const fileId = uuidv4();
       const fileExtension = file.filename.split('.').pop() || 'jpg';
       const key = `patients/${userId}/${dto.consultationId}/${file.angle_tag}-${fileId}.${fileExtension}`;
 
       const { preSignedUrl, publicUrl } =
-        await this.s3.getPresignedUploadUrl(key, file.contentType); // Bu satır 's3.service.ts' düzeldikten sonra çalışacak
+        await this.s3.getPresignedUploadUrl(key, file.contentType);
 
       uploadTasks.push({
         angle_tag: file.angle_tag,
@@ -72,7 +73,7 @@ export class ConsultationService {
       })),
     });
 
-    // 2. Konsültasyon durumunu güncelle
+    // 2. Konsültasyon durumunu güncelle (Yeni schema'ya göre)
     const updatedConsultation = await this.prisma.consultation.update({
       where: { id: dto.consultationId },
       data: {
@@ -84,166 +85,92 @@ export class ConsultationService {
     return updatedConsultation;
   }
 
+  // Hastanın KENDİ dosya paketlerini listele
   async findAllForPatient(patientId: string) {
-  this.logger.log(`Fetching all consultations for patient ${patientId}`);
+    this.logger.log(`Fetching all consultations for patient ${patientId}`);
 
-  // 1. Önce veritabanından ham veriyi çek (thumbnail dahil)
-  const consultations = await this.prisma.consultation.findMany({
-    where: {
-      patientId: patientId,
-    },
-    orderBy: {
-      createdAt: 'desc',
-    },
-    include: {
-      photos: {
-        orderBy: { uploadedAt: 'asc' },
-        take: 1,
-      },
-    },
-  });
-
-  // 2. Şimdi, her bir fotoğraf için GEÇİCİ URL üret (En önemli kısım)
-  const securedConsultations = await Promise.all(
-    consultations.map(async (consultation) => {
-
-      if (consultation.photos && consultation.photos.length > 0) {
-        
-        const originalUrl = consultation.photos[0].fileUrl;
-        
-        // KRİTİK KOD: URL sınıfını kullanarak parçala
-        const urlParts = new URL(originalUrl);
-        const key = urlParts.pathname.substring(1); 
-
-        // O 'key' için S3'ten geçici okuma URL'si iste
-        const temporaryUrl = await this.s3.getPresignedReadUrl(key);
-
-        // Orijinal URL yerine bu geçici URL'yi koy
-        consultation.photos[0].fileUrl = temporaryUrl;
-      }
-
-      return consultation;
-    }),
-  );
-
-  // 3. Flutter'a bu GÜVENLİ listeyi döndür
-  return securedConsultations;
-
-  }
-
-  async findAllForAdmin() {
-  return this.prisma.consultation.findMany({
-    orderBy: {
-      updatedAt: 'desc', // En son konuşulan en üste gelsin
-    },
-    include: {
-      patient: { // Hastanın kim olduğunu bilelim
-        include: {
-          profile: true, // Profil bilgisi (varsa)
+    const consultations = await this.prisma.consultation.findMany({
+      where: { patientId: patientId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        photos: {
+          orderBy: { uploadedAt: 'asc' },
+          take: 1,
         },
       },
-    },
-  });
-}
+    });
 
-// --- YENİ EKLENDİ: Onay bekleyenleri getir ---
-  async findPendingApproval() {
+    // ... (Güvenli URL üretme mantığı - bu kalsın, bu iyi)
+    const securedConsultations = await Promise.all(
+      consultations.map(async (consultation) => {
+        if (consultation.photos && consultation.photos.length > 0) {
+          const originalUrl = consultation.photos[0].fileUrl;
+          const urlParts = new URL(originalUrl);
+          const key = urlParts.pathname.substring(1); 
+          const temporaryUrl = await this.s3.getPresignedReadUrl(key);
+          consultation.photos[0].fileUrl = temporaryUrl;
+        }
+        return consultation;
+      }),
+    );
+    return securedConsultations;
+  }
+  
+  // Admin için TÜM dosya paketlerini listele (Bu, admin panelinin "Dosyalar" sekmesi için)
+  async findAllForAdmin() {
     return this.prisma.consultation.findMany({
-      where: {
-        status: 'PENDING_APPROVAL',
-      },
+      orderBy: { updatedAt: 'desc' },
       include: {
-        patient: { include: { profile: true } },
-        selectedSlot: true, // Hangi tarihi seçtiğini görmek için
-      },
-      orderBy: {
-        updatedAt: 'asc',
+        patient: { 
+          include: { profile: true },
+        },
       },
     });
   }
 
-  // --- YENİ EKLENDİ: Onaylama fonksiyonu ---
-  async approveConsultation(consultationId: string) {
-    // 1. Danışmanlığı ve rezerve ettiği slotu birlikte çek
+  // Hastanın TEK BİR dosya paketini (tüm fotolarla) getir
+  async findOneForPatient(consultationId: string, patientId: string) {
+    await this.verifyConsultationOwner(consultationId, patientId);
+    this.logger.log(`Fetching details for consultation ${consultationId}`);
+
     const consultation = await this.prisma.consultation.findUnique({
       where: { id: consultationId },
-      include: { selectedSlot: true },
+      include: {
+        photos: { 
+          orderBy: { angleTag: 'asc' },
+        },
+      },
     });
 
     if (!consultation) {
-      throw new NotFoundException('Danışmanlık bulunamadı');
-    }
-    if (consultation.status !== 'PENDING_APPROVAL') {
-      throw new ConflictException('Bu danışmanlık onay bekliyor durumunda değil.');
-    }
-    if (!consultation.selectedSlot) {
-      throw new ConflictException('Bu danışmanlığın seçilmiş bir randevu slotu yok.');
+      throw new NotFoundException('Konsültasyon detayı bulunamadı.');
     }
 
-    // 2. Slottaki 'dateTime'ı, ana danışmanlığın 'operationDate'ine kopyala
-    // (Timeline'ın başlaması için)
-    return this.prisma.consultation.update({
-      where: { id: consultationId },
-      data: {
-        operationDate: consultation.selectedSlot.dateTime,
-        status: 'treatment_scheduled', // Durumu 'Randevu Planlandı' yap
-      },
-    });
+    // ... (Tüm fotolar için güvenli URL üretme mantığı - bu da iyi)
+    const securedPhotos = await Promise.all(
+      consultation.photos.map(async (photo) => {
+        const originalUrl = photo.fileUrl;
+        const urlParts = new URL(originalUrl);
+        const key = urlParts.pathname.substring(1);
+        const temporaryUrl = await this.s3.getPresignedReadUrl(key);
+        return { ...photo, fileUrl: temporaryUrl };
+      }),
+    );
+
+    return { ...consultation, photos: securedPhotos };
   }
 
-  // YENİ FONKSİYON: Tek bir kaydın tüm detaylarını getir
-async findOneForPatient(consultationId: string, patientId: string) {
-  // 1. Önce bu kullanıcının bu kayda erişim hakkı var mı kontrol et
-  // (Bu fonksiyon bizde zaten var)
-  await this.verifyConsultationOwner(consultationId, patientId);
-
-  this.logger.log(`Fetching details for consultation ${consultationId}`);
-
-  // 2. Kaydın tüm detaylarını, TÜM fotoğraflarla birlikte çek
-  const consultation = await this.prisma.consultation.findUnique({
-    where: { id: consultationId },
-    include: {
-      photos: { // Thumbnail değil, HEPSİNİ al
-        orderBy: {
-          angleTag: 'asc', // Fotoğrafları 'front', 'top' sırasına göre al
-        },
-      },
-    },
-  });
-
-  if (!consultation) {
-    throw new NotFoundException('Konsültasyon detayı bulunamadı.');
-  }
-
-  // 3. Güvenlik: TÜM Fotoğrafları imzalı URL'lerle değiştir
-  // (Bu 'map' mantığı 'findAllForPatient' ile aynı)
-  const securedPhotos = await Promise.all(
-    consultation.photos.map(async (photo) => {
-      const originalUrl = photo.fileUrl;
-      const urlParts = new URL(originalUrl); // URL importu en üstte olmalı
-      const key = urlParts.pathname.substring(1);
-
-      const temporaryUrl = await this.s3.getPresignedReadUrl(key);
-
-      // Orijinal objeyi değiştirmeden yenisini yarat
-      return {
-        ...photo,
-        fileUrl: temporaryUrl,
-      };
-    }),
-  );
-
-  // 4. Flutter'a güvenli ve tam detayı döndür
-  return {
-    ...consultation,
-    photos: securedPhotos,
-  };
-}
   // Güvenlik: Kullanıcının kendi konsültasyonuna işlem yaptığını doğrula
   private async verifyConsultationOwner(
     consultationId: string,
     userId: string,
   ) {
+    // Admin ise bu kontrolü pas geç (Admin her şeyi yapabilir)
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (user && user.role === 'admin') {
+      return; // Admin ise, kontrol etme, devam et
+    }
+
     const consultation = await this.prisma.consultation.findUnique({
       where: { id: consultationId },
     });
@@ -256,6 +183,6 @@ async findOneForPatient(consultationId: string, patientId: string) {
     return consultation;
   }
 
-
-
+  // --- O PATLAYAN "ONAYLAMA" FONKSİYONLARI BURADAN SİLİNDİ ---
+  // (Çünkü artık 'appointment.service.ts'in işi)
 }

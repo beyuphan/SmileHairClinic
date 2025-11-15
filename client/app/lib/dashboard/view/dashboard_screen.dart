@@ -1,13 +1,7 @@
-// client/app/lib/dashboard/view/dashboard_screen.dart
 import 'package:flutter/material.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
 import '/l10n/app_localizations.dart';
-
-// --- YENİ İMPORTLAR ---
-import '/my_consultations/bloc/my_consultations_bloc.dart';
-import '/my_consultations/bloc/my_consultations_state.dart';
-import '/consultation/view/photo_wizard_screen.dart'; 
 import '/appointment/view/appointment_booking_screen.dart'; // Randevu ekranı
+import '/consultation/view/photo_wizard_screen.dart'; // Foto yükleme ekranı
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -26,23 +20,65 @@ class DashboardScreen extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // --- YENİ KART: RANDEVU AL BUTONU ---
-            // 'MainHubScreen'den gelen 'MyConsultationsBloc'u dinle
-            _buildAppointmentCard(context),
-
+            
+            // --- 1. KART: RANDEVU AL (ARTIK ÖZGÜR) ---
+            // "Önce Kap, Sonra Konuş" mantığı.
+            // Buton artık hep burada. BlocBuilder'a gerek yok.
+            Card(
+              color: theme.colorScheme.primary, // Vurgulu renk
+              elevation: 4.0,
+              child: InkWell(
+                onTap: () {
+                  // Tıklayınca Randevu Ekranına git (Parametresiz)
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const AppointmentBookingScreen(),
+                    ),
+                  );
+                },
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    children: [
+                      const Icon(
+                        Icons.event_available_outlined,
+                        size: 48.0,
+                        color: Colors.white,
+                      ),
+                      const SizedBox(height: 16.0),
+                      Text(
+                        "Randevu Alın",
+                        style: const TextStyle(
+                          fontSize: 22, 
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white
+                        ),
+                      ),
+                      const SizedBox(height: 8.0),
+                      Text(
+                        "Boş tarihleri görmek için tıklayın...",
+                        style: const TextStyle(color: Colors.white70),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            
             const SizedBox(height: 20),
 
-            // --- MEVCUT KART: YENİ KONSÜLTASYON ---
+            // --- 2. KART: YENİ KONSÜLTASYON ---
             Card(
               elevation: 4.0,
               child: InkWell(
                 onTap: () {
-                  // TODO: 'PhotoWizardScreen'e git
-                    Navigator.of(context).push(
+                  Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (context) => const PhotoWizardScreen(),
                     ),
-                  );                },
+                  );
+                },
                 child: Padding(
                   padding: const EdgeInsets.all(24.0),
                   child: Column(
@@ -50,7 +86,7 @@ class DashboardScreen extends StatelessWidget {
                       Icon(
                         Icons.camera_alt_outlined,
                         size: 48.0,
-                        color: theme.colorScheme.primary,
+                        color: theme.colorScheme.secondary, // Rengi değiştirebilirsin
                       ),
                       const SizedBox(height: 16.0),
                       Text(
@@ -70,79 +106,9 @@ class DashboardScreen extends StatelessWidget {
               ),
             ),
             
-            // Diğer dashboard widget'ları buraya eklenebilir
           ],
         ),
       ),
-    );
-  }
-  
-Widget _buildAppointmentCard(BuildContext context) {
-    return BlocBuilder<MyConsultationsBloc, MyConsultationsState>(
-      builder: (context, state) {
-        if (state is MyConsultationsLoaded) {
-          
-          final consultationToBook = state.consultations.firstWhere(
-            (c) => c['status'] == 'review_completed',
-            orElse: () => null,
-          );
-
-          if (consultationToBook != null) {
-            final String consultationId = consultationToBook['id'];
-            // --- YENİ: Tarihi al ---
-            final String dateStr = consultationToBook['createdAt']; 
-            
-            // Tarihi formatla (basitçe)
-            final dateDisplay = DateTime.parse(dateStr).toLocal().toString().split(' ')[0]; 
-
-            return Card(
-              color: Theme.of(context).colorScheme.primary,
-              elevation: 4.0,
-              child: InkWell(
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => AppointmentBookingScreen(
-                        consultationId: consultationId,
-                        consultationDate: dateStr, // <-- YENİ: Tarihi yolla
-                      ),
-                    ),
-                  );
-                },
-                child: Padding( // const'u kaldırdık çünkü değişken var
-                  padding: const EdgeInsets.all(24.0),
-                  child: Column(
-                    children: [
-                      const Icon(
-                        Icons.event_available_outlined,
-                        size: 48.0,
-                        color: Colors.white,
-                      ),
-                      const SizedBox(height: 16.0),
-                      const Text(
-                        'Randevu Alın', 
-                        style: TextStyle(
-                          fontSize: 22, 
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white
-                        ),
-                      ),
-                      const SizedBox(height: 8.0),
-                      // --- YENİ: Hangi başvuru olduğunu yaz ---
-                      Text(
-                        '$dateDisplay tarihli başvurunuz onaylandı.\nHemen randevu seçebilirsiniz.',
-                        style: const TextStyle(color: Colors.white70),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          }
-        }
-        return const SizedBox.shrink(); 
-      },
     );
   }
 }

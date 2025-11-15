@@ -30,13 +30,14 @@ class AppointmentBloc extends Bloc<AppointmentEvent, AppointmentState> {
   }
 
   // Seçilen slotu rezerve etme
-  Future<void> _onBookSlot(
+ Future<void> _onBookSlot(
     BookSlot event,
     Emitter<AppointmentState> emit,
   ) async {
     emit(AppointmentBookingInProgress());
     try {
-      await _apiService.bookSlot(event.slotId, event.consultationId);
+      // Artık sadece 'slotId' yolluyoruz
+      await _apiService.bookSlot(event.slotId); 
       emit(AppointmentBookingSuccess());
     } catch (e) {
       emit(AppointmentBookingFailure(e.toString()));

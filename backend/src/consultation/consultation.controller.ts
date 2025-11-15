@@ -1,73 +1,66 @@
 // backend/src/consultation/consultation.controller.ts
-import { Controller, Post, Body, UseGuards, Get, Param ,Request as NestRequest } from '@nestjs/common';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard'; // Korumamızı import et
+import {
+  Controller,
+  Post,
+  Body,
+  UseGuards,
+  Req,
+  Get,
+  Param,
+} from '@nestjs/common';
 import { ConsultationService } from './consultation.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { RequestUploadUrlsDto } from './dto/request-upload.dto';
 import { ConfirmUploadDto } from './dto/confirm-upload.dto';
-import { Roles } from '../auth/roles.decorator';
-import { RolesGuard } from '../auth/roles.guard';
-import { Role } from '@prisma/client';
+import { Roles } from '../auth/roles.decorator'; // Admin için
+import { RolesGuard } from '../auth/roles.guard';   // Admin için
+import { Role } from '@prisma/client';       // Admin için
 
-@UseGuards(JwtAuthGuard) // BU MODÜLDEKİ TÜM ENDPOINT'LERİ KORU
 @Controller('consultations')
 export class ConsultationController {
-  constructor(private readonly consultationService: ConsultationService) {}
+  constructor(
+    private readonly consultationService: ConsultationService,
+  ) {}
+
+  @Post()
+  @UseGuards(JwtAuthGuard)
+  create(@Body() dto: CreateConsultationDto, @Req() req) {
+    return this.consultationService.createConsultation(dto, req.user.id);
+  }
+
+  @Post('request-upload-urls')
+  @UseGuards(JwtAuthGuard)
+  requestUploadUrls(@Body() dto: RequestUploadUrlsDto, @Req() req) {
+    return this.consultationService.generateUploadUrls(dto, req.user.id);
+  }
+
+  @Post('confirm-upload')
+  @UseGuards(JwtAuthGuard)
+  confirmUpload(@Body() dto: ConfirmUploadDto, @Req() req) {
+    return this.consultationService.confirmUpload(dto, req.user.id);
+  }
 
   @Get()
-  findAllForPatient(@NestRequest() req) {
-    const userId = req.user.userId; // Token'dan gelen kullanıcı kimliği
-    return this.consultationService.findAllForPatient(userId);
+  @UseGuards(JwtAuthGuard)
+  findAllForPatient(@Req() req) {
+    return this.consultationService.findAllForPatient(req.user.id);
   }
 
   @Get('admin/all')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(Role.admin)
-findAllForAdmin() {
-  return this.consultationService.findAllForAdmin();
-}
-
-@Get('admin/pending-approval')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.admin)
-  findPendingApproval() {
-    return this.consultationService.findPendingApproval();
-  }
-
-  // --- YENİ EKLENDİ: Onaylama endpoint'i ---
-  @Post('admin/approve/:consultationId')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.admin)
-  approveConsultation(@Param('consultationId') consultationId: string) {
-    return this.consultationService.approveConsultation(consultationId);
+  findAllForAdmin() {
+    return this.consultationService.findAllForAdmin();
   }
 
   @Get(':id')
-  findOneForPatient(@Param('id') id: string, @NestRequest() req) {
-    const userId = req.user.userId;
-    return this.consultationService.findOneForPatient(id, userId);
-  }
-  // Akış 1: Yeni konsültasyon kaydı oluştur
-  @Post()
-  create(@Body() createDto: CreateConsultationDto, @NestRequest() req) {
-    const userId = req.user.userId; // Token'dan gelen kullanıcı kimliği
-    return this.consultationService.createConsultation(createDto, userId);
+  @UseGuards(JwtAuthGuard)
+  findOne(@Param('id') id: string, @Req() req) {
+    return this.consultationService.findOneForPatient(id, req.user.id);
   }
 
-  // Akış 2: URL'leri talep et
-  @Post('request-upload-urls')
-  requestUploadUrls(
-    @Body() requestDto: RequestUploadUrlsDto,
-    @NestRequest() req,
-  ) {
-    const userId = req.user.userId; // Token'dan gelen kullanıcı kimliği
-    return this.consultationService.generateUploadUrls(requestDto, userId);
-  }
-
-  // Akış 3: Yüklemeyi onayla
-  @Post('confirm-upload')
-  confirmUpload(@Body() confirmDto: ConfirmUploadDto, @NestRequest() req) {
-    const userId = req.user.userId; // Token'dan gelen kullanıcı kimliği
-    return this.consultationService.confirmUpload(confirmDto, userId);
-  }
+  // --- HATA VEREN O İKİ BLOK BURADAN SİLİNDİ ---
+  // @Get('admin/pending-approval') ... SİLİNDİ
+  // @Post('admin/approve/:consultationId') ... SİLİNDİ
 }

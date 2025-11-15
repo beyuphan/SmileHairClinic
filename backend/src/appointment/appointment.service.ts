@@ -1,137 +1,114 @@
 // backend/src/appointment/appointment.service.ts
-import { Injectable, UnauthorizedException, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSlotDto } from './dto/create-slot.dto';
 import { BookSlotDto } from './dto/book-slot.dto';
-import { User } from '@prisma/client'; // schema.prisma'dan
+import { User } from '@prisma/client'; 
 
 @Injectable()
 export class AppointmentService {
   constructor(private prisma: PrismaService) {}
 
-  // --- Admin ---
+  // --- Admin: Slot Ekle ---
   async createSlot(dto: CreateSlotDto) {
     return this.prisma.appointmentSlot.create({
-      data: {
-        dateTime: dto.dateTime,
-      },
+      data: { dateTime: dto.dateTime },
     });
   }
 
-  // --- Kullanıcı ---
+  // --- Admin: Slot Sil ---
+  async deleteSlot(user: User, slotId: string) {
+    if (user.role !== 'admin') {
+      throw new UnauthorizedException('Yetkiniz yok');
+    }
+    const slot = await this.prisma.appointmentSlot.findUnique({ where: { id: slotId } });
+    if (!slot) throw new NotFoundException('Slot bulunamadı');
+    if (slot.isBooked) throw new ConflictException('Dolu slot silinemez.');
+    
+    await this.prisma.appointmentSlot.delete({ where: { id: slotId } });
+    return { message: 'Slot silindi' };
+  }
+
+  // --- Herkes: Boş Slotları Gör ---
   async getAvailableSlots() {
-    // Sadece 'rezerve edilmemiş' VE 'tarihi geçmemiş' slotları getir
+    return this.prisma.appointmentSlot.findMany({
+      where: { 
+        isBooked: false, 
+        dateTime: { gte: new Date() }
+      },
+      orderBy: { dateTime: 'asc' },
+    });
+  }
+
+  // --- Kullanıcı: Randevu Al ---
+  async bookSlot(user: User, dto: BookSlotDto) {
+    const existingBooking = await this.prisma.appointmentSlot.findFirst({
+        where: { patientId: user.id }
+    });
+    if (existingBooking) {
+        throw new ConflictException('Zaten mevcut bir randevu rezervasyonunuz var.');
+    }
+
+    return await this.prisma.$transaction(async (tx) => {
+      const slot = await tx.appointmentSlot.findFirst({
+        where: { 
+          id: dto.slotId, 
+          isBooked: false 
+        },
+      });
+      if (!slot) {
+        throw new ConflictException('Bu slot dolu veya mevcut değil.');
+      }
+
+      const updatedSlot = await tx.appointmentSlot.update({
+        where: { id: dto.slotId },
+        data: {
+          isBooked: true,
+          patientId: user.id, // schema.prisma 'patientId' bekliyor
+          isConfirmed: false, 
+        },
+      });
+      return updatedSlot;
+    });
+  }
+
+  // --- YENİ ADMİN FONKSİYONLARI (DOĞRU YERDE) ---
+
+  // Admin: Onay bekleyen randevuları getir
+  async findPendingApprovals() {
     return this.prisma.appointmentSlot.findMany({
       where: {
-        isBooked: false,
-        dateTime: {
-          gte: new Date(), // 'greater than or equal' - bugünden büyük/eşit
-        },
+        isBooked: true,       // Dolu
+        isConfirmed: false,   // Onaylanmamış
+      },
+      include: {
+        patient: { include: { profile: true } }, // Hastanın kim olduğunu görmek için
       },
       orderBy: {
-        dateTime: 'asc', // Yakın tarihten uzağa sırala
+        dateTime: 'asc',
       },
     });
   }
 
-  // --- Kullanıcı ---
-  async bookSlot(user: User, dto: BookSlotDto) {
-    console.log('Randevu İsteği:', { 
-      user_id: user.id, 
-      user_role: user.role, 
-      consultation_id: dto.consultationId 
-    });
-
-    // 1. Bu danışmanlık bu kullanıcıya mı ait? Güvenlik kontrolü
-    const consultation = await this.prisma.consultation.findUnique({
-      where: { id: dto.consultationId },
-    });
-
-   if (!consultation) {
-      throw new NotFoundException('Danışmanlık bulunamadı');
-    }
-
-    // KONTROLÜ LOGLA BİRLİKTE YAP
-    // user.id yoksa user.userId'ye baksın
-    const currentUserId = user.id;
-
-    if (consultation.patientId !== currentUserId && user.role !== 'admin') {
-      console.log(`Yetki Hatası: ConsPatient=${consultation.patientId}, User=${currentUserId}`);
-      throw new UnauthorizedException('Bu danışmanlık size ait değil');
-    }
-    console.log(`Randevu İsteği: UserID=${user.id}, Role=${user.role}, ConsPatientID=${consultation.patientId}`);
-
-
-    // 2. İşlemi 'Transaction' içinde yap
-    // (Biri slotu kaparsa, diğeri hata alsın)
-    try {
-      return await this.prisma.$transaction(async (tx) => {
-        // A. Slotu bul ve 'isBooked: false' olduğundan emin ol
-        const slot = await tx.appointmentSlot.findFirst({
-          where: {
-            id: dto.slotId,
-            isBooked: false,
-          },
-        });
-
-        if (!slot) {
-          throw new ConflictException('Bu slot dolu veya mevcut değil');
-        }
-
-        // B. Slotu 'dolu' olarak güncelle ve danışmanlığa bağla
-        const updatedSlot = await tx.appointmentSlot.update({
-          where: { id: dto.slotId },
-          data: {
-            isBooked: true,
-            consultationId: dto.consultationId,
-          },
-        });
-
-        // C. Danışmanlığın (Consultation) durumunu 'ONAY BEKLİYOR' yap
-        await tx.consultation.update({
-          where: { id: dto.consultationId },
-          data: {
-            // Not: schema.prisma'daki enum adın PENDING_APPROVAL olmalı
-            status: 'PENDING_APPROVAL', 
-          },
-        });
-
-        return updatedSlot;
-      });
-    } catch (e) {
-      if (e instanceof ConflictException) {
-        throw e;
-      }
-      throw new ConflictException('Randevu alınırken bir hata oluştu. Slot kapılmış olabilir.');
-    }
-  }
-
-  async deleteSlot(user: User, slotId: string) {
-    // Admin değilse veya rolü yoksa engelle
-    if (user.role !== 'admin') {
-      throw new UnauthorizedException('Bu işlemi yapmaya yetkiniz yok');
-    }
-
+  // Admin: Randevuyu onayla
+  async approveAppointment(slotId: string) {
     const slot = await this.prisma.appointmentSlot.findUnique({
       where: { id: slotId },
     });
 
     if (!slot) {
-      throw new NotFoundException('Slot bulunamadı');
+      throw new NotFoundException('Randevu slotu bulunamadı');
+    }
+    if (!slot.isBooked || slot.isConfirmed) {
+      throw new ConflictException('Bu slot zaten onaylanmış veya boş.');
     }
 
-    // ÖNEMLİ KONTROL: Eğer slot bir hasta tarafından 'rezerve edilmişse'
-    // (yani 'isBooked' true ise) silinmemeli.
-    if (slot.isBooked) {
-      throw new ConflictException('Bu slot bir hastaya rezerve edilmiş, silinemez.');
-    }
-
-    // Slot boşsa, sil
-    await this.prisma.appointmentSlot.delete({
+    // 2. Slotu 'Onaylandı' olarak işaretle
+    return this.prisma.appointmentSlot.update({
       where: { id: slotId },
+      data: {
+        isConfirmed: true,
+      },
     });
-
-    return { message: 'Slot başarıyla silindi' };
   }
-
 }

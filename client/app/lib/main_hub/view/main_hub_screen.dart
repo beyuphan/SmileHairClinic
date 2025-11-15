@@ -1,9 +1,9 @@
 // client/app/lib/main_hub/view/main_hub_screen.dart
+import 'package:app/chat/view/chat_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '/dashboard/view/dashboard_screen.dart';
 import '/my_consultations/view/my_consultations_screen.dart';
-import '/timeline/view/timeline_screen.dart';
 import '/profile/view/profile_screen.dart';
 import '/l10n/app_localizations.dart';
 
@@ -27,7 +27,7 @@ class _MainHubScreenState extends State<MainHubScreen> {
   static const List<Widget> _widgetOptions = <Widget>[
     DashboardScreen(),
     MyConsultationsScreen(),
-    TimelineScreen(),
+    ChatScreen(),
     ProfileScreen(),
   ];
 
@@ -67,9 +67,9 @@ class _MainHubScreenState extends State<MainHubScreen> {
 
             ),
             BottomNavigationBarItem(
-              icon: const Icon(Icons.calendar_month_outlined),
-              activeIcon: const Icon(Icons.calendar_month),
-              label: l10n.navbarTimeline,
+              icon: const Icon(Icons.chat_bubble_outline),
+              activeIcon: const Icon(Icons.chat_bubble),
+              label: "Chat",
             ),
             BottomNavigationBarItem(
               icon: const Icon(Icons.person_outline),

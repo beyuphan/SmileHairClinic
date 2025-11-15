@@ -162,9 +162,9 @@ class ApiService {
   }
 
   // --- CHAT GEÇMİŞİ ---
-  Future<List<dynamic>> getChatHistory(String consultationId) async {
+  Future<List<dynamic>> getChatHistory() async {
     try {
-      final response = await _dio.get('/chat/history/$consultationId');
+      final response = await _dio.get('/chat/history/me');
       return response.data as List<dynamic>; 
     } catch (e) {
       rethrow;
@@ -182,13 +182,12 @@ class ApiService {
   }
 
   // --- SLOT REZERVE ET ---
-  Future<void> bookSlot(String slotId, String consultationId) async {
+  Future<void> bookSlot(String slotId) async {
     try {
       await _dio.post(
         '/appointments/book-slot',
         data: {
           'slotId': slotId,
-          'consultationId': consultationId,
         },
       );
     } catch (e) {

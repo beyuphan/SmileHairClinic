@@ -1,4 +1,3 @@
-// backend/src/appointment/dto/book-slot.dto.ts
 import { IsNotEmpty, IsUUID } from 'class-validator';
 
 export class BookSlotDto {
@@ -6,7 +5,5 @@ export class BookSlotDto {
   @IsUUID()
   slotId: string;
 
-  @IsNotEmpty()
-  @IsUUID()
-  consultationId: string;
+  // consultationId ARTIK YOK!
 }

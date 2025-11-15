@@ -1,3 +1,5 @@
+// backend/prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,24 +9,17 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ---- ENUMLAR ----
-
 enum Role {
   patient
   doctor
   admin
 }
 
-// --- GÜNCELLENDİ ---
-// Yeni bir durum ekledik: PENDING_APPROVAL
 enum ConsultationStatus {
-  pending_photos      // Fotoğraf bekleniyor
-  pending_review      // Doktor/Admin incelemesi bekleniyor
-  review_completed    // İnceleme bitti (Artık randevu seçebilir)
-  PENDING_APPROVAL    // Kullanıcı slot seçti, admin onayı bekleniyor (YENİ)
-  treatment_scheduled // Admin onayladı, operasyon tarihi belli
-  completed           // Operasyon tamamlandı
-  cancelled           // İptal edildi
+  pending_photos      // Başladı, foto yok
+  pending_review      // Fotolar yüklendi
+  reviewed            // İncelendi
+  archived            // Arşiv
 }
 
 enum AngleTag {
@@ -38,25 +33,33 @@ enum AngleTag {
 }
 
 enum TimelineEventType {
-  INFO    // Normal bilgi metni (örn: "Alkolü bırak")
-  VIDEO   // Eğitim videosu (örn: "3. Gün Yıkama")
-  UPLOAD  // Hastadan fotoğraf yüklemesini iste (örn: "10. Gün Kabuk Dökme")
+  INFO    
+  VIDEO   
+  UPLOAD  
 }
 
-// ---- TABLOLARIMIZ BAŞLIYOR ----
-
+// ---- KULLANICI (HER ŞEYİN MERKEZİ) ----
 model User {
   id            String   @id @default(uuid())
   email         String   @unique
   passwordHash  String
   role          Role     @default(patient)
   createdAt     DateTime @default(now())
-  
-  fcmToken      String?  @unique // YENİ: Push notification için
+  fcmToken      String?  @unique 
 
   profile       PatientProfile?
-  consultations Consultation[]
-  sentMessages  ChatMessage[]    @relation("Sender")
+  
+  // İLİŞKİLER (Artık her şey direkt User'a bağlı)
+  consultations Consultation[] // Dosya paketleri
+  appointments  AppointmentSlot[] // Randevuları
+  
+  // CHAT SİSTEMİ (Tek Kanal - WhatsApp Modeli)
+  // Bu kullanıcının kendi kanalı (Hasta ise kendi mesajları + ona gelenler)
+  chatChannel   ChatMessage[] @relation("ChannelOwner")
+  
+  // Bu kullanıcının "Yazar" olarak attığı mesajlar 
+  sentMessages  ChatMessage[] @relation("MessageSender")
+
   timelineEvents TimelineEvent[]
 }
 
@@ -72,27 +75,20 @@ model PatientProfile {
   medicalHistoryNotes String?  @db.Text
 }
 
-// --- GÜNCELLENDİ ---
+// SADECE "DOSYA PAKETİ"
 model Consultation {
   id          String   @id @default(uuid())
   patientId   String
   patient     User     @relation(fields: [patientId], references: [id])
-  doctorId    String?
+  
   status      ConsultationStatus @default(pending_photos)
   doctorNotes String?  @db.Text
+  
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  // YENİ: Admin onaylayınca, seçilen slottaki tarih buraya yazılacak.
-  // Timeline (sigarayı bırak vs.) bu tarihi baz alacak.
-  operationDate DateTime?
-
   photos          ConsultationPhoto[]
-  messages        ChatMessage[]
   medicalFormData Json?
-
-  // YENİ: Bu danışmanlık için seçilen randevu slotu
-  selectedSlot   AppointmentSlot?
 }
 
 model ConsultationPhoto {
@@ -104,15 +100,34 @@ model ConsultationPhoto {
   uploadedAt     DateTime     @default(now())
 }
 
+// YENİ CHAT MODELİ
 model ChatMessage {
-  id             String       @id @default(uuid())
-  consultationId String
-  consultation   Consultation @relation(fields: [consultationId], references: [id])
+  id             String   @id @default(uuid())
+  
+  // Hangi kullanıcının sohbet odası?
+  channelOwnerId String
+  channelOwner   User     @relation("ChannelOwner", fields: [channelOwnerId], references: [id])
+  
+  // Mesajı kim yazdı? (Hasta veya Admin)
   senderId       String
-  sender         User         @relation("Sender", fields: [senderId], references: [id])
-  messageContent String       @db.Text
-  timestamp      DateTime     @default(now())
-  isRead         Boolean      @default(false)
+  sender         User     @relation("MessageSender", fields: [senderId], references: [id])
+  
+  messageContent String   @db.Text
+  timestamp      DateTime @default(now())
+  isRead         Boolean  @default(false)
+}
+
+// YENİ RANDEVU MODELİ
+model AppointmentSlot {
+  id        String   @id @default(uuid())
+  dateTime  DateTime @unique 
+  isBooked  Boolean  @default(false) 
+
+  // Randevuyu kim aldı? (Consultation zorunluluğu kalktı!)
+  patientId String?
+  patient   User?    @relation(fields: [patientId], references: [id])
+  
+  isConfirmed Boolean @default(false) // Admin onayı
 }
 
 model TimelineEvent {
@@ -121,21 +136,8 @@ model TimelineEvent {
   patient     User     @relation(fields: [patientId], references: [id])
   title       String
   description String?  @db.Text
-  eventDate   DateTime // Bu tarih 'operationDate'e göre hesaplanacak
+  eventDate   DateTime 
   isCompleted Boolean  @default(false)
   type        TimelineEventType @default(INFO)
   videoUrl    String?
-}
-
-// --- YENİ MODEL ---
-// Adminin "boş randevu" olarak girdiği tarih/saat slotları
-model AppointmentSlot {
-  id       String   @id @default(uuid())
-  dateTime DateTime @unique // Randevu tarihi ve saati (Benzersiz olmalı)
-  isBooked Boolean  @default(false) // Seçildi mi?
-
-  // Bu slot hangi danışmanlığa rezerve edildi?
-  // (1'e 1 ilişki: Bir slot sadece bir danışmanlığa ait olabilir)
-  consultation   Consultation? @relation(fields: [consultationId], references: [id])
-  consultationId String?       @unique
 }

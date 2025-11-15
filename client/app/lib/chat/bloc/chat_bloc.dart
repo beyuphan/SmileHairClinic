@@ -1,3 +1,4 @@
+// client/app/lib/chat/bloc/chat_bloc.dart
 import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
@@ -10,15 +11,14 @@ import 'package:jwt_decoder/jwt_decoder.dart';
 class ChatBloc extends Bloc<ChatEvent, ChatState> {
   final ApiService _apiService;
   final SecureStorageService _storageService;
-  final String consultationId;
   
   IO.Socket? _socket;
-  StreamSubscription? _socketSubscription;
+  String? _currentUserId; // "Benim" ID'm
 
   ChatBloc({
     required ApiService apiService,
     required SecureStorageService storageService,
-    required this.consultationId,
+    // 'consultationId' ARTIK YOK!
   }) : _apiService = apiService,
        _storageService = storageService, 
        super(ChatInitial()) {
@@ -32,63 +32,57 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     ChatStarted event,
     Emitter<ChatState> emit,
   ) async {
-    print("--- BLoC: CHAT BAŞLATILDI ---");
+    print("--- BLoC: TEK KANAL CHAT BAŞLATILDI ---");
     emit(ChatHistoryLoading());
     
     try {
-      // 1. ADIM: Token işlemleri (Temizlendi)
+      // 1. ADIM: Token'dan "BENİM ID'Mİ" al
       final token = await _storageService.getToken();
       if (token == null) {
         throw Exception('Giriş yapılmamış, token bulunamadı.');
       }
-
-      // Token'dan ID'yi güvenli bir şekilde al
       Map<String, dynamic> decodedToken = JwtDecoder.decode(token);
-      // Backend 'sub' veya 'id' olarak yolluyor olabilir, garantiye alalım:
-      final String currentUserId = decodedToken['sub'] ?? decodedToken['id'];
+      _currentUserId = decodedToken['sub'] ?? decodedToken['id']; // 'sub' veya 'id'
       
-      print("Token'dan çözülen Kullanıcı ID: $currentUserId");
+      if (_currentUserId == null) {
+        throw Exception('Token\'dan User ID alınamadı.');
+      }
+      print("Token'dan çözülen Kullanıcı ID: $_currentUserId");
 
-      // 2. ADIM: Eski mesajları çek
-      // Backend artık 'orderBy: asc' ile gönderiyor (Eskiden -> Yeniye)
-      final history = await _apiService.getChatHistory(consultationId);
+      // 2. ADIM: Eski mesajları çek (Artık parametresiz)
+      final history = await _apiService.getChatHistory();
 
       // 3. ADIM: WebSocket'e Bağlan
-      
-      // DİKKAT: Buradaki IP adresinin 'ApiService'teki ile AYNI olduğundan emin ol!
-      // Eğer emülatörse 10.0.2.2, gerçek cihazsa 192.168.1.XX
-      const socketUrl = 'http://192.168.1.25:3000'; // <-- GÜNCEL IP'Nİ YAZ
-
-      print("--- SOCKET BAĞLANIYOR ---");
-      print("URL: $socketUrl");
+      // DİKKAT: IP ADRESİNİ KONTROL ET
+      const socketUrl = 'http://192.168.1.30:3000'; // <-- KENDİ IP'N
 
       _socket = IO.io(socketUrl, <String, dynamic>{
         'transports': ['websocket'],
         'autoConnect': true,
         'extraHeaders': {
-          'Authorization': 'Bearer $token', // Token'ı header'da yolla
+          'Authorization': 'Bearer $token', // Flutter gibi
         }
       });
       
       _socket!.connect();
 
+      // Backend (ChatGateway) 'patient' rolünü görünce
+      // otomatik olarak 'room_{userId}' odasına sokacak.
+      // 'joinRoom' emit etmemize gerek yok.
+      
+      _socket!.on('connect', (_) => print('Socket.IO: Bağlantı kuruldu.'));
+
       _socket!.on('newMessage', (data) {
         add(ChatMessageReceived(data as Map<String, dynamic>));
       });
       
-      _socket!.onConnect((_) {
-        print('Socket.IO: Bağlantı kuruldu.');
-        _socket!.emit('joinRoom', {'consultationId': consultationId});
-      });
-      
       _socket!.onConnectError((data) {
         print('Socket.IO Bağlantı Hatası: $data');
-        // Bağlantı hatası olsa bile geçmiş mesajları gösterelim, hata fırlatmayalım
       });
 
       // 4. ADIM: Başarılı
-      // DÜZELTME: .reversed kaldırıldı! Liste zaten kronolojik geliyor.
-      emit(ChatLoaded(history, currentUserId)); 
+      // (Backend zaten 'asc' [user's previous turn] sıralı yolluyor, '.reversed' yok)
+      emit(ChatLoaded(history, _currentUserId!)); 
 
     } catch (e) {
       print("ChatBloc Hatası: $e");
@@ -100,14 +94,12 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     ChatMessageSent event,
     Emitter<ChatState> emit,
   ) {
-    if (_socket == null || !_socket!.connected) {
-      print("Socket bağlı değil, mesaj gönderilemedi.");
-      return; 
-    }
+    if (_socket == null || !_socket!.connected) return;
 
+    // Backend 'sendMessage' artık 'content' bekliyor.
+    // 'targetUserId' yollamıyoruz, çünkü biz hastayız.
     _socket!.emit('sendMessage', {
-      'consultationId': consultationId,
-      'messageContent': event.message,
+      'content': event.message,
     });
   }
 
@@ -117,11 +109,8 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
   ) {
     final currentState = state;
     if (currentState is ChatLoaded) {
-      // Mevcut listeyi kopyala
       final updatedMessages = List<dynamic>.from(currentState.messages);
-      // Yeni mesajı SONA ekle (Kronolojik sıra bozulmaz)
       updatedMessages.add(event.message);
-      
       emit(ChatLoaded(updatedMessages, currentState.currentUserId));
     }
   }
@@ -131,7 +120,6 @@ class ChatBloc extends Bloc<ChatEvent, ChatState> {
     print("Socket.IO: Kapatılıyor.");
     _socket?.off('newMessage');
     _socket?.disconnect();
-    _socketSubscription?.cancel();
     return super.close();
   }
 }

@@ -12,10 +12,9 @@ class FetchAvailableSlots extends AppointmentEvent {}
 // Kullanıcı bir slota tıklayınca
 class BookSlot extends AppointmentEvent {
   final String slotId;
-  final String consultationId;
 
-  const BookSlot({required this.slotId, required this.consultationId});
+  const BookSlot({required this.slotId});
 
   @override
-  List<Object> get props => [slotId, consultationId];
+  List<Object> get props => [slotId];
 }
